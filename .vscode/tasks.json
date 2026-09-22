@@ -1,0 +1,77 @@
+{
+  // Run from Terminal > Run Task, or Ctrl+Shift+B for the default one.
+  // Every task runs through cmd.exe so a .bat and a `>` redirect behave the
+  // same whatever the user's default terminal shell is.
+  "version": "2.0.0",
+  "windows": {
+    "options": {
+      "shell": { "executable": "cmd.exe", "args": ["/d", "/c"] }
+    }
+  },
+  "tasks": [
+    {
+      "label": "Overview: serve",
+      "detail": "Run the local overview on 8775 in this panel. Ctrl+C stops it.",
+      "type": "shell",
+      "command": "serve.bat",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "Overview: stop",
+      "detail": "Kill whatever is listening on 8775 — for a server with no window to interrupt.",
+      "type": "shell",
+      "command": "stop-server.bat",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "Verify",
+      "detail": "The verify gate from PROJECT.md. Writes tests/last-run.txt.",
+      "type": "shell",
+      "command": "python tests/run_tests.py > tests/last-run.txt 2>&1 & more < tests/last-run.txt",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "clear": true,
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "Check geometry literals",
+      "detail": "Fail if a print measurement is typed outside dixitgen.spec.",
+      "type": "shell",
+      "command": "python tools/check_geometry_literals.py",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      }
+    }
+  ]
+}

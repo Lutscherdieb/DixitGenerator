@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dixitgen"
+version = "0.1.0.dev0"
+description = "Print-ready A4 duplex sheets of custom 80 x 120 mm Dixit-format cards"
+requires-python = ">=3.10"
+dependencies = [
+    # Exact-millimetre placement and vector crop marks.  Pillow can emit a PDF
+    # but gives no control over where on the page anything lands, which is the
+    # one thing this project is about.
+    "reportlab>=4.0",
+    # The verify gate parses its own output back off disk -- see PROJECT.md.
+    "pypdf>=4.0",
+    "pillow>=10.0",
+    "CherryPy>=18.9",
+    "SQLAlchemy>=2.0",
+    "pydantic>=2.6",
+]
+
+[project.scripts]
+dixitgen = "dixitgen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

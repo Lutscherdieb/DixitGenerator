@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "project": "DixitGenerator",
+  "created": "2026-09-22",
+  "base_version_at_creation": "0.0.3",
+  "last_synced_version": "0.0.3",
+  "profile": "web",
+  "toolchain": {
+    "language": "python",
+    "min_version": "3.10",
+    "package_manager": "pip",
+    "install": "pip install -e .",
+    "key_libraries": [
+      "reportlab",
+      "pypdf",
+      "pillow",
+      "CherryPy",
+      "SQLAlchemy",
+      "pydantic"
+    ],
+    "external_tools": []
+  },
+  "modules": {
+    "docs": true,
+    "verify": true,
+    "references": true,
+    "harvest": true,
+    "audit": true
+  },
+  "interview": {
+    "mode": "/base:new-project, answered interactively 2026-09-22",
+    "q1_name_and_goal": {
+      "name": "DixitGenerator",
+      "repo": "DixitGenerator",
+      "goal": "Turn uploaded artwork into print-ready A4 duplex PDF sheets of 80 x 120 mm Dixit-format cards, with an overview to organise and batch-select them."
+    },
+    "q2_description_nongoals_users": {
+      "description": "Local tool for making custom Dixit cards. Images in; a browser overview organises them by name, tags and notes; any selection exports as A4 sheets at 300 DPI, fronts 2x2 with margin crop marks plus matching back sheets from one chosen back image, registering under duplex printing on a home printer.",
+      "non_goals": [
+        "not a print-service uploader - no MakePlayingCards/PrinterStudio specs; home printer, guillotine, laminator",
+        "not internet-facing - localhost, single user, no accounts",
+        "not an art tool - artwork is authored elsewhere",
+        "not a card designer - no name, text, symbol, frame or border ever prints on a card",
+        "not a Dixit rules implementation"
+      ],
+      "users": "Just me, on this machine."
+    },
+    "q3_profile": "web",
+    "q4_toolchain_and_run": {
+      "build": "pip install -e .",
+      "run": "serve.bat  (VS Code: Terminal > Run Task > 'Overview: serve'), then http://127.0.0.1:8775/web/index.html"
+    },
+    "q5_verify": {
+      "method": "export fixture batches in all three duplex modes, parse the written PDFs back off disk, and assert page box, card-box positions and sizes, front/back registration, crop-mark clearance and raster resolution; plus a derivation cross-check against published figures the project does not print",
+      "command": "python tests/run_tests.py > tests/last-run.txt 2>&1",
+      "evidence": "tests/last-run.txt",
+      "note": "web/** is mapped to docs/ARCHITECTURE.md but deliberately outside source_globs: exporting a PDF proves nothing about the browser UI. Its check is tests/check_gallery.py (not yet written), which drives a real browser against an already-running server and honours DIXIT_URL."
+    },
+    "q6_references": [
+      "dixit-card-spec",
+      "paper-and-pdf-units"
+    ],
+    "q7_doc_contract": [
+      "README.md",
+      "docs/ARCHITECTURE.md",
+      "docs/PRINTING.md"
+    ],
+    "q9_gate_strictness": "preview-and-approve on",
+    "q10_git_mode": "C - local-only git, no remote",
+    "q11_generators": "none yet",
+    "q12_modules": "all on",
+    "decisions_2026_09_22": {
+      "card_size": "80 x 120 mm - the Dixit/Magnum sleeve standard. One retailer lists the raw card at 79 x 120; we print 80 because a hand-cut, laminated card grows rather than shrinks. Recorded as a blind spot on the reference so it is not 'fixed' later.",
+      "paper": "A4 only. Derived 2x2 grid, 4 cards per sheet.",
+      "duplex": "All three modes built (long-edge, short-edge, manual two-file) plus a calibration procedure for per-printer drift. Short-edge additionally rotates the back image 180 degrees.",
+      "aspect_fit": "Crop to fill, centred, with a per-card focus point (0..1 of the source) as the nudge. Stored as two numbers, not a pixel rectangle, so it survives a re-upload at another resolution.",
+      "cut_guides": "Cards touch; crop marks live in the paper margin. 3 mm bleed on the block's OUTER edges only - a shared edge must not bleed onto its neighbour.",
+      "card_metadata": "Name + free tags + notes. Nothing prints on the card; the metadata exists only so the overview can be searched and batch-selected.",
+      "back_images": "A separate 'backs' shelf, not mixed into the card overview - a back is not a playable card.",
+      "ports": "8775 author / 8776 Claude throwaway. Deliberately different from the sibling CardGenerator's 8765/8766 so both galleries can run at once and a stop command cannot reach the wrong one.",
+      "pdf_library": "reportlab for exact-millimetre placement and vector crop marks; Pillow cannot place. pypdf so the gate can parse its own output back.",
+      "no_corner_radius": "A guillotine cuts square corners; a printed radius then cut square looks worse than none. Corner punch after lamination is the intended finish."
+    }
+  },
+  "doc_map": [
+    {
+      "sources": [
+        "src/**",
+        "web/**"
+      ],
+      "doc": "docs/ARCHITECTURE.md"
+    },
+    {
+      "sources": [
+        "src/dixitgen/spec/**",
+        "src/dixitgen/export/**",
+        "tools/calibration_sheet.py"
+      ],
+      "doc": "docs/PRINTING.md"
+    },
+    {
+      "sources": [
+        "pyproject.toml",
+        "tests/**",
+        "tools/**",
+        "serve.bat",
+        "stop-server.bat",
+        ".vscode/tasks.json"
+      ],
+      "doc": "README.md"
+    }
+  ],
+  "source_globs": [
+    "src/**",
+    "tests/**",
+    "tools/**",
+    "pyproject.toml"
+  ],
+  "verify": {
+    "command": "python tests/run_tests.py > tests/last-run.txt 2>&1",
+    "evidence": "tests/last-run.txt",
+    "exempt_patterns": [
+      "**/*.md",
+      "data/**",
+      "out/**"
+    ]
+  },
+  "readonly_refs": [
+    {
+      "id": "dixit-card-spec",
+      "committed_path": null,
+      "local": false
+    },
+    {
+      "id": "paper-and-pdf-units",
+      "committed_path": null,
+      "local": false
+    }
+  ],
+  "generators": [],
+  "region_state": {
+    "CLAUDE.md#doctrine-header": {
+      "rev": 1,
+      "hash": "sha256:e9d3f44cc03f64bd79438e9c25627c215cba11429dab32c2c9c44097028246c4"
+    },
+    "CLAUDE.md#doctrine-references": {
+      "rev": 1,
+      "hash": "sha256:a84d39f620d7b019ad7f0d14f3262562ed541aec93482afee303b6802460effe"
+    },
+    "CLAUDE.md#doctrine-writeback": {
+      "rev": 1,
+      "hash": "sha256:8d77f59a95b60cdf7d11c2c348176f7a5a790f99e74d4280107c4212ebf659c7"
+    },
+    "CLAUDE.md#doctrine-docs": {
+      "rev": 2,
+      "hash": "sha256:e2041e3904f39c2c4920eadf02afee3cef18c4e338de55d6fd462bdb5030afe0"
+    },
+    "CLAUDE.md#doctrine-verify": {
+      "rev": 1,
+      "hash": "sha256:12f090329fe6761527d0eeb771e9de4b261044b92d2366d2fca39b885f0ae4a3"
+    },
+    "README.md#readme-footer": {
+      "rev": 1,
+      "hash": "sha256:e3fb8bf7642b628e56a959dbd9b325017f591f023cacc50ce368a45b21fc5849"
+    }
+  },
+  "divergences": [
+    {
+      "id": "seed-settings-shape",
+      "what": "`.claude/settings.json` was written with `enabledPlugins` as an OBJECT map ({\"base@claudebase\": true}), not the list the base 0.0.3 seed template emits.",
+      "why": "Claude Code rejects the list form as a settings file that fails to parse, even though the JSON is syntactically valid -- the mismatch is schema, not syntax. The object form is what both ~/.claude/settings.json and the sibling CardGenerator repo use. This is a Base seed bug; logged as a promotion-ready generic lesson (2 applications) in .claude/learning-log.md.",
+      "recorded": "2026-09-22"
+    },
+    {
+      "id": "references-guard-dormant",
+      "what": "Both declared references are live websites with no local path, so `protect-references` has nothing to block.",
+      "why": "The references are genuinely remote -- there is no published Dixit spec to vendor, and ISO 216 / ISO 32000 are paywalled. Recorded so /base:doctor reporting the guard as dormant reads as expected rather than as breakage.",
+      "recorded": "2026-09-22"
+    }
+  ],
+  "notes": {
+    "verify_scope": "web/** is mapped to a doc but deliberately left out of source_globs: the gate exports and measures PDFs and says nothing about the browser overview. serve.bat / stop-server.bat / .vscode/tasks.json are launchers, likewise out of source_globs and into README's doc_map.",
+    "region_hashing": "tools/region_hashes.py computes region_state per /base:sync's region-rewrite.md (content between markers, LF-normalised, trailing-newline-insensitive). It was validated by reproducing all six hashes Base itself wrote into the sibling CardGenerator repo -- run `python tools/region_hashes.py --check --repo <other sub>` to re-prove it.",
+    "scaffold_scope": "Scaffolded 2026-09-22 with the measurement layer, crop, PDF export and verify gate implemented, so the constitution's central claim is enforced from day one rather than dormant. The store, the JSON API beyond /api/meta, the browser overview and tools/calibration_sheet.py are not started."
+  }
+}

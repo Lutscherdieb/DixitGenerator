@@ -1,0 +1,37 @@
+# Machine-local state — never versioned (no personal data / machine paths in git; see CLAUDE.md)
+*.local.json
+*.local.md
+references.local.json
+
+# Claude Code local session state
+.claude/settings.local.json
+.claude/.session/
+
+# Tooling cruft
+__pycache__/
+*.pyc
+
+# OS cruft
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Project-specific ignores (scaffolder appends toolchain-appropriate entries here)
+# Python packaging / tooling
+build/
+dist/
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# This machine's measured duplex drift. Belongs to one printer and one paper
+# path; committing it would misregister someone else's. Also matched by the
+# *.local.json rule above -- named here so it is findable.
+printer.local.json
+
+# The card database and anything exported for a printer.
+data/*.db
+data/*.db-journal
+out/*
+!out/.gitkeep
+

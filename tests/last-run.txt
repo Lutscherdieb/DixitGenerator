@@ -1,0 +1,27 @@
+DixitGenerator verify gate
+========================================================================
+card   : Dixit (80 x 120 mm) -> 945 x 1417 px at 300 DPI
+sheet  : A4 (210 x 297 mm), 2x2 grid, 4 cards/sheet, margins 25.0/28.5 mm
+output : E:\Boardgame\DixitGenerator\out\verify
+========================================================================
+PASS units: A4 derives to its published PDF point size
+PASS units: an MTG card (a size we never print) derives correctly
+PASS units: the Dixit card derives to 945 x 1417 px at 300 DPI
+PASS units: art at exactly the derived pixel size is not called soft
+PASS layout: A4 holds a centred 2x2 grid with equal margins
+PASS layout: bleed grows outward only, never onto a neighbour
+PASS layout: every flip registers, and crop marks stay off the cards
+PASS control: an off-centre block fails registration
+PASS control: furniture drawn on a card fails the clean-card assertion
+PASS control: a card too big for the paper is refused, not silently shrunk
+PASS control: an empty selection is refused
+PASS export: a full sheet writes A4 pages with four cards and clean margins
+PASS export: on a part-full sheet the back lands in the mirrored slot
+PASS export: a short-edge back is rotated 180 degrees in the pixels
+PASS export: several sheets, with a part-full last one, back only where used
+PASS export: manual mode writes two files with matching page counts
+PASS export: every placed raster resolves at 300 DPI or better
+PASS export: low-resolution art warns but still exports
+========================================================================
+18 passed, 0 failed, 18 total
+Geometry matches the spec. Safe to print.

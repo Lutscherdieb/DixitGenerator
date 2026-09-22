@@ -1,0 +1,79 @@
+/* The overview's styling.  Declares no print geometry of its own: card and
+   sheet measurements arrive from /api/meta, never from a rule in here. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #12110f;
+  --panel: #1b1a17;
+  --ink: #ece7dd;
+  --muted: #9b948a;
+  --line: #2e2b26;
+  --accent: #c8a15a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2rem 1.5rem 4rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+header { max-width: 60rem; margin: 0 auto 2rem; }
+
+h1 {
+  margin: 0;
+  font-size: 1.9rem;
+  letter-spacing: 0.01em;
+}
+
+.sub { margin: 0.25rem 0 0; color: var(--muted); }
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.note { color: var(--muted); font-size: 0.9rem; }
+
+dl {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: 0.4rem 1.5rem;
+  margin: 1rem 0 0;
+}
+
+dt { color: var(--muted); }
+dd { margin: 0; }
+dd.loading { color: var(--muted); font-style: italic; }
+dd.error { color: #e07a5f; }
+
+.roadmap { margin: 0.5rem 0 1rem; padding-left: 1.2rem; }
+.roadmap li { margin: 0.3rem 0; }
+
+code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.88em;
+  background: #00000040;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}

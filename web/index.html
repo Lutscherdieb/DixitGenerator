@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DixitGenerator</title>
+  <link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+  <header>
+    <h1>DixitGenerator</h1>
+    <p class="sub">Custom Dixit cards, from uploaded artwork to a cut sheet.</p>
+  </header>
+
+  <main>
+    <section class="panel" id="spec-panel">
+      <h2>Print geometry</h2>
+      <p class="note">
+        Served from <code>/api/meta</code>. Every number on this page is read
+        from <code>dixitgen.spec</code> &mdash; the browser never types a
+        measurement of its own, and
+        <code>tools/check_geometry_literals.py</code> enforces that.
+      </p>
+      <dl id="spec"><dd class="loading">Loading&hellip;</dd></dl>
+    </section>
+
+    <section class="panel">
+      <h2>Not built yet</h2>
+      <p>
+        The print geometry and its verify gate are in place. What comes next,
+        in order:
+      </p>
+      <ol class="roadmap">
+        <li><strong>Store</strong> &mdash; SQLite: card images, backs, names, tags, notes, crop focus.</li>
+        <li><strong>API</strong> &mdash; upload, list, filter by tag, edit, delete.</li>
+        <li><strong>Overview</strong> &mdash; the grid you browse and batch-select from.</li>
+        <li><strong>Export</strong> &mdash; wire the selection to <code>dixitgen.export</code>, which already works.</li>
+        <li><strong>Calibration sheet</strong> &mdash; measure this printer's duplex drift once.</li>
+      </ol>
+      <p class="note">
+        See <code>PROJECT.md</code> for the constitution and
+        <code>docs/PRINTING.md</code> for how to print and cut.
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="/web/app.js"></script>
+</body>
+</html>
