@@ -42,7 +42,7 @@ from .verify import (
     assert_art_inside_own_slot,
     assert_clean_cards,
     assert_page_box,
-    assert_placements_match_slots,
+    assert_placements_cover_cards,
     assert_registration,
 )
 
@@ -77,7 +77,7 @@ __all__ = [
     "assert_clean_cards",
     "assert_art_inside_own_slot",
     "assert_page_box",
-    "assert_placements_match_slots",
+    "assert_placements_cover_cards",
     "art_warnings",
 ]
 

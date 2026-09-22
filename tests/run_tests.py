@@ -49,7 +49,7 @@ from dixitgen.spec import (  # noqa: E402
     assert_art_inside_own_slot,
     assert_clean_cards,
     assert_page_box,
-    assert_placements_match_slots,
+    assert_placements_cover_cards,
     assert_registration,
     effective_dpi,
     mm_to_pt,
@@ -335,22 +335,18 @@ def card_fixtures(n: int) -> List[CardArt]:
     ]
 
 
-def expected_art_boxes(layout: SheetLayout, slots) -> List[Tuple[float, ...]]:
-    return [layout.art_box(*slot).as_tuple() for slot in slots]
+def assert_placements_are(page, slots, what: str) -> None:
+    """Every named slot is framed by exactly one placement on this page."""
+    assert_placements_cover_cards(
+        [p.as_tuple() for p in page.placements], SHEET, list(slots), what
+    )
 
 
-def assert_placements_are(page, boxes, what: str) -> None:
-    got = sorted(p.as_tuple() for p in page.placements)
-    want = sorted(boxes)
-    if len(got) != len(want):
-        raise AssertionError(
-            "{}: page {} has {} image placements, expected {}".format(
-                what, page.index, len(got), len(want)
-            )
-        )
-    for g, w in zip(got, want):
-        for axis, gv, wv in zip("xywh", g, w):
-            near(gv, wv, 0.01, "{}: page {} placement {}".format(what, page.index, axis))
+def trim_crop(img: Image.Image) -> Image.Image:
+    """What the preview shows, and what a cut card must show."""
+    from dixitgen.render.crop import crop_to_fill
+
+    return crop_to_fill(img, DIXIT.trim_w_mm, DIXIT.trim_h_mm)
 
 
 @check("export: a full sheet writes A4 pages with four cards and clean margins")
@@ -368,10 +364,7 @@ def _full_sheet() -> None:
     all_slots = list(SHEET.slots())
     for page in pages:
         assert_page_box(page.width_pt, page.height_pt, A4)
-        assert_placements_are(page, expected_art_boxes(SHEET, all_slots), "full sheet")
-        assert_placements_match_slots(
-            [p.as_tuple() for p in page.placements], SHEET, "art"
-        )
+        assert_placements_are(page, all_slots, "full sheet")
         equal(len(page.lines), len(SHEET.crop_marks()), "crop marks on page")
         marks = [
             Segment(line.x1_mm, line.y1_mm, line.x2_mm, line.y2_mm)
@@ -397,16 +390,8 @@ def _partial_sheet_shows_the_flip() -> None:
         pages = read_pages(result.paths[0])
         equal(len(pages), 2, "{}: pages".format(flip.value))
 
-        assert_placements_are(
-            pages[0],
-            expected_art_boxes(SHEET, [front_slot]),
-            "{} front".format(flip.value),
-        )
-        assert_placements_are(
-            pages[1],
-            expected_art_boxes(SHEET, [back_slot]),
-            "{} back".format(flip.value),
-        )
+        assert_placements_are(pages[0], [front_slot], "{} front".format(flip.value))
+        assert_placements_are(pages[1], [back_slot], "{} back".format(flip.value))
         equal(
             SHEET.back_slot(front_slot[0], front_slot[1], flip),
             back_slot,
@@ -767,7 +752,7 @@ def _selection_order_is_preserved() -> None:
 @check("store -> export: the library's pixels reach the PDF unresampled")
 def _library_bytes_reach_the_pdf() -> None:
     engine = scratch_engine()
-    source = quadrant_fixture(1200, 1800)
+    source = quadrant_fixture(1200, 1800)  # already 2:3: no spare pixels to bleed
     with store.session_scope(engine) as session:
         card = store.add_card(session, png_bytes(source), name="through-the-store")
         back = store.add_back(session, png_bytes(quadrant_fixture(1200, 1800)))
@@ -785,16 +770,15 @@ def _library_bytes_reach_the_pdf() -> None:
     equal(len(rasters), 1, "one front raster")
     placed = list(rasters.values())[0]
 
-    # The card box is taller in proportion than the source, so crop_to_fill
-    # keeps the full width and trims height.  A raster narrower than the
-    # upload means something resampled on the way through.
-    equal(placed.size[0], source.size[0], "raster width vs uploaded width")
-    if placed.size[1] >= source.size[1]:
-        raise AssertionError(
-            "expected the crop to trim height: uploaded {}, placed {}".format(
-                source.size, placed.size
-            )
-        )
+    # A 2:3 source is exactly the card's shape, so the trim crop is the whole
+    # image and there is not one spare pixel to bleed with.  The raster must
+    # therefore arrive whole -- any other size means something resampled or,
+    # worse, that the trim line is eating into the picture.
+    equal(placed.size, source.size, "raster size vs uploaded size")
+    box = pages[0].placements[0]
+    near(box.w_mm, DIXIT.trim_w_mm, 0.01, "drawn width with no bleed available")
+    near(box.h_mm, DIXIT.trim_h_mm, 0.01, "drawn height with no bleed available")
+
     # And the pixels are the uploaded ones, not something re-generated.
     colour_near(
         corner_colour(placed, "tl"), (255, 0, 0), "top-left quadrant survived the store"
@@ -802,6 +786,99 @@ def _library_bytes_reach_the_pdf() -> None:
     colour_near(
         corner_colour(placed, "tr"), (0, 255, 0), "top-right quadrant survived the store"
     )
+
+
+def slot_of(placement) -> Tuple[int, int]:
+    """The slot whose card box this placement frames."""
+    for slot in SHEET.slots():
+        card = SHEET.card_box(*slot)
+        if (
+            placement.x_mm <= card.x_mm + 0.01
+            and placement.y_mm <= card.y_mm + 0.01
+            and placement.x_mm + placement.w_mm >= card.right_mm - 0.01
+            and placement.y_mm + placement.h_mm >= card.top_mm - 0.01
+        ):
+            return slot
+    raise AssertionError(
+        "placement ({:.2f}, {:.2f}) {:.2f}x{:.2f}mm frames no card box".format(
+            placement.x_mm, placement.y_mm, placement.w_mm, placement.h_mm
+        )
+    )
+
+
+@check("export: the cut card shows the preview's crop, identically in every slot")
+def _trim_framing_is_slot_independent() -> None:
+    # The regression guard for the bug the author found on a real export
+    # (2026-09-23): art was scaled to fill the BLED box, so the trim line cut
+    # into the picture -- and because bleed exists only on the block's outer
+    # edges, slot (0,0) lost its left and top while slot (1,1) lost its right
+    # and bottom.  The same card printed differently depending on where it
+    # landed on the sheet.
+    #
+    # 928x1232 is the author's own source shape: wider than the card, so there
+    # ARE spare pixels sideways and bleed really happens on that axis.
+    source = band_fixture(928, 1232)
+    preview = trim_crop(source)
+
+    cards = [CardArt(name="same-{}".format(i), image=source) for i in range(4)]
+    result = export_batch(cards, OUT / "trim-framing.pdf", flip=Flip.LONG_EDGE)
+    page = read_pages(result.paths[0])[0]
+    rasters = embedded_images_by_name(result.paths[0], 0)
+    equal(len(page.placements), 4, "placements")
+
+    trims, bleeds = set(), {}
+    for placement in page.placements:
+        slot = slot_of(placement)
+        card = SHEET.card_box(*slot)
+        raster = rasters[placement.name]
+        px_per_mm_x = raster.size[0] / placement.w_mm
+        px_per_mm_y = raster.size[1] / placement.h_mm
+        trims.add(
+            (round(card.w_mm * px_per_mm_x), round(card.h_mm * px_per_mm_y))
+        )
+        bleeds[slot] = (
+            round(card.x_mm - placement.x_mm, 2),
+            round(placement.y_mm + placement.h_mm - card.top_mm, 2),
+        )
+
+    if len(trims) != 1:
+        raise AssertionError(
+            "the same card is framed differently depending on its slot: trim "
+            "regions {} -- bleed per slot {}".format(sorted(trims), bleeds)
+        )
+    got = trims.pop()
+    if abs(got[0] - preview.size[0]) > 1 or abs(got[1] - preview.size[1]) > 1:
+        raise AssertionError(
+            "the cut card would show {}x{}px of the source but the preview "
+            "shows {}x{}px -- the trim line is eating into the picture".format(
+                got[0], got[1], preview.size[0], preview.size[1]
+            )
+        )
+
+    # Bleed still happens where the source can supply it: this source is wider
+    # than the card, so the outer columns get their sideways bleed.
+    if bleeds[(0, 0)][0] <= 0:
+        raise AssertionError(
+            "slot (0,0) got no left bleed from a source with spare width: "
+            "{}".format(bleeds)
+        )
+
+
+@check("export: a source with no spare pixels gets no bleed, and no white band")
+def _bleed_degrades_gracefully() -> None:
+    # 2:3 exactly: crop_to_fill consumes 100% of both axes, so nothing is left
+    # over to bleed with.  The drawn box must then equal the card box -- never
+    # a bled box with blank edges.
+    cards = [CardArt(name="exact", image=band_fixture(1200, 1800))]
+    result = export_batch(cards, OUT / "no-bleed.pdf", flip=Flip.LONG_EDGE)
+    page = read_pages(result.paths[0])[0]
+    equal(len(page.placements), 1, "placements")
+    placement = page.placements[0]
+    card = SHEET.card_box(0, 0)
+    near(placement.x_mm, card.x_mm, 0.01, "no bleed: x")
+    near(placement.y_mm, card.y_mm, 0.01, "no bleed: y")
+    near(placement.w_mm, card.w_mm, 0.01, "no bleed: width")
+    near(placement.h_mm, card.h_mm, 0.01, "no bleed: height")
 
 
 # --------------------------------------------------------------------------

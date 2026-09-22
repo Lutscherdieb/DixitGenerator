@@ -154,47 +154,72 @@ def assert_page_box(width_pt: float, height_pt: float, paper: PaperSize) -> None
         )
 
 
-def assert_placements_match_slots(
+def assert_placements_cover_cards(
     placements: Sequence[Tuple[float, float, float, float]],
     layout: SheetLayout,
+    slots: Sequence[Tuple[int, int]],
     what: str = "art",
 ) -> None:
-    """Placements parsed out of a PDF must be the layout's own boxes.
+    """Art placements parsed out of a PDF must frame their cards correctly.
 
-    ``placements`` are ``(x, y, w, h)`` in **millimetres**, in any order --
-    a PDF content stream has no obligation to draw in reading order, so
-    matching is by position, not by index.
+    The invariant is not equality with ``art_box``.  ``art_box`` is a *maximum*:
+    how much bleed a slot actually gets depends on how many spare pixels the
+    source had outside its trim crop, so a legitimate placement is anywhere
+    between the card box and the nominal art box.  What must always hold:
+
+    1. every named slot has exactly one placement;
+    2. that placement **contains the slot's whole card box** -- otherwise the
+       cut would leave bare paper inside the card;
+    3. it does not exceed the nominal art box -- otherwise art would spill onto
+       a neighbour or past the bleed allowance.
+
+    ``placements`` are ``(x, y, w, h)`` in **millimetres**, in any order: a PDF
+    content stream has no obligation to draw in reading order.
     """
-    expected = [(slot, layout.art_box(*slot)) for slot in layout.slots()]
-    if len(placements) != len(expected):
+    if len(placements) != len(slots):
         raise GeometryError(
-            "found {} {} placements on the page, expected {} ({}x{} grid)".format(
-                len(placements), what, len(expected), layout.rows, layout.cols
+            "found {} {} placements on the page, expected {} (slots {})".format(
+                len(placements), what, len(slots), list(slots)
             )
         )
 
     unmatched = list(placements)
-    for slot, box in expected:
+    for slot in slots:
+        card = layout.card_box(*slot)
+        limit = layout.art_box(*slot)
         for i, (x, y, w, h) in enumerate(unmatched):
-            if (
-                abs(x - box.x_mm) <= MM_TOLERANCE
-                and abs(y - box.y_mm) <= MM_TOLERANCE
-                and abs(w - box.w_mm) <= MM_TOLERANCE
-                and abs(h - box.h_mm) <= MM_TOLERANCE
-            ):
+            placed = Rect(x, y, w, h)
+            contains_card = (
+                placed.x_mm <= card.x_mm + MM_TOLERANCE
+                and placed.y_mm <= card.y_mm + MM_TOLERANCE
+                and placed.right_mm >= card.right_mm - MM_TOLERANCE
+                and placed.top_mm >= card.top_mm - MM_TOLERANCE
+            )
+            within_limit = (
+                placed.x_mm >= limit.x_mm - MM_TOLERANCE
+                and placed.y_mm >= limit.y_mm - MM_TOLERANCE
+                and placed.right_mm <= limit.right_mm + MM_TOLERANCE
+                and placed.top_mm <= limit.top_mm + MM_TOLERANCE
+            )
+            if contains_card and within_limit:
                 unmatched.pop(i)
                 break
         else:
             raise GeometryError(
-                "no {} placement found for slot {}: expected ({:.4f}, {:.4f}) "
-                "{:.4f}x{:.4f}mm, page has {}".format(
+                "no {} placement frames slot {}: it must contain the card box "
+                "({:.3f}, {:.3f}) {:.3f}x{:.3f}mm and stay inside "
+                "({:.3f}, {:.3f}) {:.3f}x{:.3f}mm; the page has {}".format(
                     what,
                     slot,
-                    box.x_mm,
-                    box.y_mm,
-                    box.w_mm,
-                    box.h_mm,
-                    ["({:.3f}, {:.3f}) {:.3f}x{:.3f}".format(*p) for p in placements],
+                    card.x_mm,
+                    card.y_mm,
+                    card.w_mm,
+                    card.h_mm,
+                    limit.x_mm,
+                    limit.y_mm,
+                    limit.w_mm,
+                    limit.h_mm,
+                    ["({:.2f}, {:.2f}) {:.2f}x{:.2f}".format(*p) for p in placements],
                 )
             )
 

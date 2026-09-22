@@ -24,7 +24,7 @@ from PIL import Image
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from ..render.crop import prepare_for_box
+from ..render.crop import crop_with_bleed, rotate_sides
 from ..spec.sheet import Flip, SheetLayout
 from ..spec.units import mm_to_pt
 from ..spec.verify import (
@@ -67,14 +67,36 @@ def _chunk(items: Sequence[CardArt], size: int) -> List[Sequence[CardArt]]:
 def _draw_front_page(
     pdf: canvas.Canvas, layout: SheetLayout, page_cards: Sequence[CardArt]
 ) -> List[str]:
+    """Draw each card's art so its **trim** region is the preview's crop.
+
+    The card box is the framing; bleed is extra material taken from outside it
+    where the source has any.  Drawing to fill the bled box instead would make
+    the cut line eat into the picture -- and, since bleed only exists on the
+    block's outer edges, by a different amount in every slot.
+    """
     warnings: List[str] = []
     slots = list(layout.slots())
     for card, slot in zip(page_cards, slots):
-        box = layout.art_box(*slot)
-        art = prepare_for_box(card.image, box.w_mm, box.h_mm, card.focus)
-        warnings.extend(art_warnings(layout.card, [(card.name, *art.size)], box))
+        card_box = layout.card_box(*slot)
+        crop = crop_with_bleed(
+            card.image,
+            layout.card.trim_w_mm,
+            layout.card.trim_h_mm,
+            card.focus,
+            layout.bleed_sides(*slot),
+        )
+        box = card_box.grown(
+            left=crop.left_mm,
+            bottom=crop.bottom_mm,
+            right=crop.right_mm,
+            top=crop.top_mm,
+        )
+        # Resolution is judged on the trim region, which is what is kept.
+        warnings.extend(
+            art_warnings(layout.card, [(card.name, *crop.image.size)], box)
+        )
         x_pt, y_pt, w_pt, h_pt = box.as_pt()
-        pdf.drawImage(ImageReader(art), x_pt, y_pt, width=w_pt, height=h_pt)
+        pdf.drawImage(ImageReader(crop.image), x_pt, y_pt, width=w_pt, height=h_pt)
     _draw_crop_marks(pdf, layout)
     return warnings
 
@@ -96,8 +118,22 @@ def _draw_back_page(
     dx_mm, dy_mm = offset_mm
     for slot in used_slots:
         back_slot = layout.back_slot(slot[0], slot[1], flip)
-        box = layout.art_box(*back_slot)
-        art = prepare_for_box(back, box.w_mm, box.h_mm, rotate_deg=rotation)
+        card_box = layout.card_box(*back_slot)
+        wanted = layout.bleed_sides(*back_slot)
+
+        # A 180-degree turn swaps the sides, so the bleed has to be asked for on
+        # the opposite ones *before* rotating in order to land correctly after.
+        crop = crop_with_bleed(
+            back,
+            layout.card.trim_w_mm,
+            layout.card.trim_h_mm,
+            (0.5, 0.5),
+            rotate_sides(wanted) if rotation else wanted,
+        )
+        art = crop.image.rotate(rotation, expand=True) if rotation else crop.image
+        got = rotate_sides(crop.sides) if rotation else crop.sides
+
+        box = card_box.grown(left=got[0], bottom=got[1], right=got[2], top=got[3])
         x_pt, y_pt, w_pt, h_pt = box.as_pt()
         pdf.drawImage(
             ImageReader(art),

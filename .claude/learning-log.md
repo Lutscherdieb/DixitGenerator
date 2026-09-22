@@ -96,3 +96,19 @@ this example from being scanned as a real candidate by `/base:promote`):
 - home: src/dixitgen/web/app.py (`tools.trailing_slash.on: False`), docs/ARCHITECTURE.md#turn-cherrypys-trailing-slash-redirect-off
 - evidence: `POST /api/export HTTP/1.1" 301` followed immediately by `GET /api/export/ HTTP/1.1" 405` in the server log. Export was broken from the UI and working through curl; only tests/check_gallery.py, driving a real browser, could see it. This is the concrete payoff for keeping a browser check separate from the verify gate.
 - applications: 2026-09-22
+
+## 2026-09-23 — define-the-artefact-by-its-trim-not-by-its-bleed
+- scope: generic
+- status: candidate
+- rule: When output is produced at one size and then trimmed to another, compute the **trim** content first and treat the sacrificial margin as material added outside it — never scale the content to fill the untrimmed box. Clamp the margin to what the source can supply and report what was achieved, so the drawn region always equals the drawn content. Assert that the trimmed result is identical regardless of which position on the sheet the item occupied.
+- home: src/dixitgen/render/crop.py (`crop_with_bleed`), src/dixitgen/export/sheet_pdf.py (`_draw_front_page`), docs/ARCHITECTURE.md#the-trim-crop-is-the-card-bleed-is-extra-material-outside-it, tests/run_tests.py (`export: the cut card shows the preview's crop, identically in every slot`)
+- evidence: art was scaled to fill the bled box (83x123mm) and then cut at 80x120mm, so a printed card was ~2.4% tighter than its preview on a 928x1232 source. Worse, bleed exists only on the block's outer edges, so slot (0,0) lost its left+top and slot (1,1) its right+bottom — the same card framed differently depending on its position, which also made a slot-independent preview impossible. Found by the author looking at a real exported PDF, not by any check: the gate asserted that placements *equalled* `art_box`, which is precisely the wrong invariant. The replacement asserts each placement *contains* its card box and stays within `art_box`.
+- applications: 2026-09-23
+
+## 2026-09-23 — state-the-structural-limit-instead-of-advising-a-workaround
+- scope: generic
+- status: candidate
+- rule: Before telling the user to change their inputs to get a better result, check whether the algorithm can produce that result at all. Demonstrate the limit with a table over several inputs rather than reasoning about the one case in front of you.
+- home: docs/ARCHITECTURE.md#four-side-bleed-is-structurally-impossible-here-and-that-is-fine
+- evidence: advised the author to "render art slightly oversized to restore full bleed". Wrong: `crop_to_fill` is maximal, keeping 100% of the width or 100% of the height, so one axis never has a spare pixel and bleed on it is always zero — at any resolution. Checked across six source shapes (928x1232, 1200x1800, 1000x1300, 2048x2048, 3000x2000, 1500x2400): one spare column is zero in every case. The advice would have cost the author a re-render of their whole deck for no gain.
+- applications: 2026-09-23

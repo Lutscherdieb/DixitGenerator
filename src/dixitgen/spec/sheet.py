@@ -254,20 +254,36 @@ class SheetLayout:
             h_mm=self.card.trim_h_mm,
         )
 
-    def art_box(self, row: int, col: int) -> Rect:
-        """Where this slot's image is actually drawn.
+    def bleed_sides(self, row: int, col: int) -> Tuple[float, float, float, float]:
+        """``(left, bottom, right, top)`` millimetres of bleed wanted for a slot.
 
-        Equal to ``card_box`` on every side that has a neighbour, and grown by
-        ``outer_bleed_mm`` on every side sitting on the block's outer edge.
-        Art drawn past a shared edge would print on the neighbouring card.
+        Outward only: a side with a neighbour gets none, because art drawn past
+        a shared edge would print on the neighbouring card.  Cards share their
+        cut lines, so a slightly-off cut between two of them takes from one and
+        gives to the other and both stay full-bleed -- the block's outer
+        perimeter is the only edge that needs bleed at all.
         """
-        box = self.card_box(row, col)
+        self._check_slot(row, col)
         bleed = self.outer_bleed_mm
-        return box.grown(
-            left=bleed if col == 0 else 0.0,
-            right=bleed if col == self.cols - 1 else 0.0,
-            top=bleed if row == 0 else 0.0,
-            bottom=bleed if row == self.rows - 1 else 0.0,
+        return (
+            bleed if col == 0 else 0.0,
+            bleed if row == self.rows - 1 else 0.0,
+            bleed if col == self.cols - 1 else 0.0,
+            bleed if row == 0 else 0.0,
+        )
+
+    def art_box(self, row: int, col: int) -> Rect:
+        """The **largest** box this slot's art may occupy: card box plus bleed.
+
+        A nominal maximum, not a promise.  What is actually drawn depends on
+        how much bleed the source could supply -- see
+        ``render.crop.crop_with_bleed``.  The card box is the framing; bleed is
+        extra material outside it, and a source with no spare pixels on a side
+        simply gets a smaller drawn box there.
+        """
+        left, bottom, right, top = self.bleed_sides(row, col)
+        return self.card_box(row, col).grown(
+            left=left, bottom=bottom, right=right, top=top
         )
 
     # -- duplex ------------------------------------------------------------

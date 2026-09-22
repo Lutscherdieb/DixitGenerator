@@ -34,6 +34,8 @@ PASS store: duplicate content is reported, not blocked
 PASS store: delete is permanent and removes the row
 PASS store -> export: a selection exports in the order it was made
 PASS store -> export: the library's pixels reach the PDF unresampled
+PASS export: the cut card shows the preview's crop, identically in every slot
+PASS export: a source with no spare pixels gets no bleed, and no white band
 ========================================================================
-30 passed, 0 failed, 30 total
+32 passed, 0 failed, 32 total
 Geometry matches the spec. Safe to print.

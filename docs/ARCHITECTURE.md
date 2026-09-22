@@ -150,12 +150,51 @@ gate keeps a deliberately off-centre layout as a negative control.
 ### Cards touch; only the block's outer edge gets bleed
 
 Adjacent cards share a cut line, so one guillotine pass serves two cards and an
-off-by-1 mm cut still leaves both full-bleed — one 81 mm, its neighbour 79 mm,
+off-by-1 mm cut still leaves both full-bleed - one 81 mm, its neighbour 79 mm,
 neither showing white. A gutter would turn the same error into a white sliver,
 which is the failure people actually see on a laminated card.
 
-The block's outer edges have no neighbour to borrow from, so `art_box` grows
-those sides by `outer_bleed_mm` (3 mm) and only those.
+The block's outer edges have no neighbour to borrow from, so those sides - and
+only those - get `outer_bleed_mm`.
+
+### The trim crop is the card; bleed is extra material outside it
+
+**Reversed 2026-09-23.** The first implementation scaled each card's art to
+*fill* its bled box (83 x 123 mm) and then cut at the trim line. Two things were
+wrong with that, and the author caught both by looking at a real export:
+
+1. The cut ate into the picture, so a printed card was a tighter crop than the
+   grid tile - about 2.4% on each axis for a 928 x 1232 source.
+2. Because bleed exists only on the block's outer edges, *which* 3 mm was lost
+   depended on the slot: (0,0) lost its left and top, (1,1) its right and
+   bottom. **The same card printed differently depending on where it landed.**
+   That also made the preview structurally unable to be correct, since a card
+   does not know its slot until export.
+
+Now `crop_with_bleed` computes the **trim** crop first - exactly what
+`crop_to_fill` returns and exactly what the thumbnail shows - and then takes
+bleed from source pixels *outside* it, per side, clamped to what the source
+actually has. The drawn box is the card box grown by the bleed that was
+achieved, so the drawn box always equals the drawn image and a side that could
+not bleed produces a smaller box rather than a white band.
+
+`art_box` survives as the **nominal maximum**, which is what
+`assert_placements_cover_cards` uses as an upper bound; the real invariant it
+checks is that every placement *contains* its card box and stays inside that
+maximum.
+
+### Four-side bleed is structurally impossible here, and that is fine
+
+`crop_to_fill` is maximal: it keeps 100% of the width *or* 100% of the height.
+So one axis never has a spare pixel, and bleed on that axis is always zero - for
+any source, at any resolution. Rendering art larger does not change this.
+
+Getting bleed on all four sides would require a deliberately *non-maximal* crop,
+showing less of every picture in order to protect the 8 outer edges of a
+16-edge sheet. The other 8 edges are shared cut lines that compensate
+themselves, and the outer ones are the easiest cuts to make accurately because
+the crop marks sit in clear margin. Not worth the trade; revisit only if real
+sheets show white slivers.
 
 ### The flip mapping is only observable on a part-full sheet
 
