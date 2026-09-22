@@ -69,6 +69,7 @@ Uploaded artwork is validated separately and advisorily: an image that resolves 
 ## Open direction notes
 
 - **Built: the print geometry, the crop, the card library, the API, the browser overview and the export.** The one piece left from the original plan is `tools/calibration_sheet.py`.
+- **No bleed: the printed area is the card, edge to edge.** Decided 2026-09-23 after the author saw a real export. Bleed existed only on the block's outer edges and only where a source had spare pixels, so a card pushed to its focus limit got none while its neighbour got 3 mm — not worth the asymmetry. The outer border is cut cleanly instead; interior cuts are shared and self-compensating. The machinery is kept and still tested, so raising `SheetLayout.outer_bleed_mm` brings it back.
 - **`data/cards.db` holds the only copy of every uploaded image, and deletion is permanent.** That was the deliberate choice over soft delete (2026-09-22): the confirmation lives in the UI. Back the file up before a big tidy-up — it is one file, and copying it copies the whole library.
 - **The calibration sheet is not optional polish.** Home-printer duplex drift of 1-2 mm is normal and is exactly the error that ruins a batch of 84 cards. Build `tools/calibration_sheet.py` before the first real print run, not after.
 - **Decide how a batch remembers its back.** An export currently takes a back image as a parameter. If re-exporting the same deck becomes routine, a saved batch (selection + back + duplex mode) is worth more than a bigger export dialog. Author's call once the overview exists.

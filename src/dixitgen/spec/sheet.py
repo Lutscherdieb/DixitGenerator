@@ -177,9 +177,18 @@ class SheetLayout:
     cols: int = 2
     rows: int = 2
 
-    #: Art grown outward past the block's outer edges, so a cut that lands
-    #: outside the block still hits art instead of paper.
-    outer_bleed_mm: float = 3.0
+    #: Art grown outward past the block's outer edges.
+    #:
+    #: **Zero by the author's decision, 2026-09-23.** Bleed bought protection
+    #: against a cut landing outside the block, at the cost of asymmetry: it
+    #: exists only on the block's outer edges, and only where the source has
+    #: spare pixels beyond the card's crop -- so a card pushed to its focus
+    #: limit got none on that side while its neighbour got the full 3 mm. The
+    #: author would rather cut the outer border cleanly than live with that.
+    #:
+    #: The machinery is kept and still tested: raise this number and bleed
+    #: comes back, correctly, on every side that has material to give.
+    outer_bleed_mm: float = 0.0
 
     #: Crop-mark geometry.  ``mark_gap_mm`` is measured from the outer edge of
     #: the bled art, not from the card, so a mark can never touch artwork.
@@ -261,7 +270,10 @@ class SheetLayout:
         a shared edge would print on the neighbouring card.  Cards share their
         cut lines, so a slightly-off cut between two of them takes from one and
         gives to the other and both stay full-bleed -- the block's outer
-        perimeter is the only edge that needs bleed at all.
+        perimeter is the only edge bleed could ever help.
+
+        With ``outer_bleed_mm`` at its default of zero this returns zeros, so
+        every drawn box is exactly its card box.
         """
         self._check_slot(row, col)
         bleed = self.outer_bleed_mm

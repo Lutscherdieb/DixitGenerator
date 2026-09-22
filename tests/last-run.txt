@@ -35,7 +35,8 @@ PASS store: delete is permanent and removes the row
 PASS store -> export: a selection exports in the order it was made
 PASS store -> export: the library's pixels reach the PDF unresampled
 PASS export: the cut card shows the preview's crop, identically in every slot
-PASS export: a source with no spare pixels gets no bleed, and no white band
+PASS export: with bleed off, every drawn box is exactly its card box
+PASS export: bleed still works when switched back on
 ========================================================================
-32 passed, 0 failed, 32 total
+33 passed, 0 failed, 33 total
 Geometry matches the spec. Safe to print.

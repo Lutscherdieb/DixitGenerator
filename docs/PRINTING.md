@@ -13,18 +13,22 @@ ruin a run if you get them wrong.
 | Cards per sheet | 4, in a 2 × 2 block |
 | Card | 80 × 120 mm — the Dixit / "Magnum" sleeve size |
 | Block | 160 × 240 mm, centred: 25 mm margins left and right, 28.5 mm top and bottom |
-| Bleed | up to 3 mm, on the block's outer edges only, and only where your source has spare pixels beyond the card's crop |
-| Crop marks | hairlines in the margin, 1.5 mm clear of the art, 4 mm long |
+| Bleed | **none** — nothing is printed outside a cut line |
+| Crop marks | hairlines in the margin, 1.5 mm clear of the block, 4 mm long |
 
 Cards **touch**. That is deliberate: one cut of the guillotine serves two cards,
 and a cut that lands a millimetre off still leaves both cards full-bleed — one
 comes out 81 mm, its neighbour 79 mm, and neither shows a white edge.
 
-**The cut card shows exactly what the grid tile showed.** The card's crop is the
-card; bleed is extra material taken from *outside* it when the source has any to
-spare. Because the crop always uses 100% of one axis of your source, one axis
-never has spare - so bleed on the outer edges is normally partial, and that is
-expected rather than a sign of undersized art.
+**The cut card shows exactly what the grid tile showed**, and there is no bleed:
+the printed area *is* the card, edge to edge, with nothing beyond the cut line.
+
+That means the four outer edges of the block want a clean cut. Land the blade a
+little outside and you get a hairline white sliver on that edge; a little inside
+and the card is fractionally small, which nobody will notice. When in doubt, cut
+a hair inside the mark. The interior cuts need no such care - they are shared
+between two cards, so an off cut simply makes one 81 mm and its neighbour 79 mm,
+both still full-bleed.
 
 Pages come out interleaved — front, back, front, back — for automatic duplex.
 In manual mode you get two files instead.
@@ -150,6 +154,6 @@ the lower sheets out of line.
 | Backs are on the wrong cards | Exported flip ≠ printer's duplex setting | Match them; re-run the one-card test above to confirm which your printer does |
 | Backs are upside down | Short-edge duplex without the 180° rotation, or an exported `long-edge` file printed short-edge | Export `short-edge` for a short-edge printer; the rotation is then applied for you |
 | Backs are consistently a millimetre or two off | Normal printer drift | Calibrate and record `printer.local.json` |
-| A thin white sliver on an **outer** card edge | The cut landed outside the block, past whatever bleed that edge had | Cut closer to the crop marks. Outer edges carry up to 3 mm of bleed and often less - see the note above. Interior edges are shared and cannot show a sliver |
+| A thin white sliver on an **outer** card edge | The cut landed outside the block. There is no bleed to cover it, by design | Cut on the mark or a hair inside it. Interior edges are shared and cannot show a sliver |
 | A card looks soft or pixellated | The source art was below 945 × 1417 px | The export warns about this by name — re-upload a larger source. It is a warning, not a block: a deliberately painterly source is your call |
 | The whole sheet is shifted on the paper | "Borderless" or a custom paper size in the driver | Turn borderless off; set paper to plain A4 |

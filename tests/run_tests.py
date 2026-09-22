@@ -788,10 +788,11 @@ def _library_bytes_reach_the_pdf() -> None:
     )
 
 
-def slot_of(placement) -> Tuple[int, int]:
+def slot_of(placement, layout: SheetLayout = None) -> Tuple[int, int]:
     """The slot whose card box this placement frames."""
-    for slot in SHEET.slots():
-        card = SHEET.card_box(*slot)
+    layout = layout or SHEET
+    for slot in layout.slots():
+        card = layout.card_box(*slot)
         if (
             placement.x_mm <= card.x_mm + 0.01
             and placement.y_mm <= card.y_mm + 0.01
@@ -815,70 +816,104 @@ def _trim_framing_is_slot_independent() -> None:
     # and bottom.  The same card printed differently depending on where it
     # landed on the sheet.
     #
-    # 928x1232 is the author's own source shape: wider than the card, so there
-    # ARE spare pixels sideways and bleed really happens on that axis.
+    # 928x1232 is the author's own source shape: wider than the card, so a
+    # bleeding layout has material to take.  The invariant must hold whether
+    # bleed is off (the default) or on, so both are exercised.
     source = band_fixture(928, 1232)
     preview = trim_crop(source)
 
-    cards = [CardArt(name="same-{}".format(i), image=source) for i in range(4)]
-    result = export_batch(cards, OUT / "trim-framing.pdf", flip=Flip.LONG_EDGE)
-    page = read_pages(result.paths[0])[0]
-    rasters = embedded_images_by_name(result.paths[0], 0)
-    equal(len(page.placements), 4, "placements")
+    for label, layout in (
+        ("bleed off", SHEET),
+        ("bleed 3mm", SheetLayout.fit(outer_bleed_mm=3.0)),
+    ):
+        cards = [CardArt(name="same-{}".format(i), image=source) for i in range(4)]
+        result = export_batch(
+            cards,
+            OUT / "trim-framing-{}.pdf".format(layout.outer_bleed_mm),
+            layout=layout,
+            flip=Flip.LONG_EDGE,
+        )
+        page = read_pages(result.paths[0])[0]
+        rasters = embedded_images_by_name(result.paths[0], 0)
+        equal(len(page.placements), 4, "{}: placements".format(label))
 
-    trims, bleeds = set(), {}
-    for placement in page.placements:
-        slot = slot_of(placement)
-        card = SHEET.card_box(*slot)
-        raster = rasters[placement.name]
-        px_per_mm_x = raster.size[0] / placement.w_mm
-        px_per_mm_y = raster.size[1] / placement.h_mm
-        trims.add(
-            (round(card.w_mm * px_per_mm_x), round(card.h_mm * px_per_mm_y))
-        )
-        bleeds[slot] = (
-            round(card.x_mm - placement.x_mm, 2),
-            round(placement.y_mm + placement.h_mm - card.top_mm, 2),
-        )
-
-    if len(trims) != 1:
-        raise AssertionError(
-            "the same card is framed differently depending on its slot: trim "
-            "regions {} -- bleed per slot {}".format(sorted(trims), bleeds)
-        )
-    got = trims.pop()
-    if abs(got[0] - preview.size[0]) > 1 or abs(got[1] - preview.size[1]) > 1:
-        raise AssertionError(
-            "the cut card would show {}x{}px of the source but the preview "
-            "shows {}x{}px -- the trim line is eating into the picture".format(
-                got[0], got[1], preview.size[0], preview.size[1]
+        trims = set()
+        for placement in page.placements:
+            card = layout.card_box(*slot_of(placement, layout))
+            raster = rasters[placement.name]
+            trims.add(
+                (
+                    round(card.w_mm * raster.size[0] / placement.w_mm),
+                    round(card.h_mm * raster.size[1] / placement.h_mm),
+                )
             )
+
+        if len(trims) != 1:
+            raise AssertionError(
+                "{}: the same card is framed differently depending on its slot: "
+                "trim regions {}".format(label, sorted(trims))
+            )
+        got = trims.pop()
+        if abs(got[0] - preview.size[0]) > 1 or abs(got[1] - preview.size[1]) > 1:
+            raise AssertionError(
+                "{}: the cut card would show {}x{}px of the source but the "
+                "preview shows {}x{}px -- the trim line is eating into the "
+                "picture".format(label, got[0], got[1], preview.size[0], preview.size[1])
+            )
+
+
+@check("export: with bleed off, every drawn box is exactly its card box")
+def _no_bleed_by_default() -> None:
+    # The author's decision, 2026-09-23: no bleed, cut the outer border
+    # cleanly. Nothing may be drawn outside the cut line, for any source shape
+    # -- including one with plenty of spare pixels sideways.
+    equal(SHEET.outer_bleed_mm, 0.0, "default bleed")
+    for name, (w, h) in (
+        ("exactly 2:3", (1200, 1800)),
+        ("wider than the card", (928, 1232)),
+        ("square", (1400, 1400)),
+        ("much wider", (3000, 2000)),
+    ):
+        cards = [CardArt(name=name, image=band_fixture(w, h)) for _ in range(4)]
+        result = export_batch(
+            cards, OUT / "no-bleed-{}x{}.pdf".format(w, h), flip=Flip.LONG_EDGE
         )
+        page = read_pages(result.paths[0])[0]
+        equal(len(page.placements), 4, "{}: placements".format(name))
+        for placement in page.placements:
+            card = SHEET.card_box(*slot_of(placement, SHEET))
+            for axis, got, want in (
+                ("x", placement.x_mm, card.x_mm),
+                ("y", placement.y_mm, card.y_mm),
+                ("width", placement.w_mm, card.w_mm),
+                ("height", placement.h_mm, card.h_mm),
+            ):
+                near(got, want, 0.01, "{} ({}x{}): drawn {}".format(name, w, h, axis))
 
-    # Bleed still happens where the source can supply it: this source is wider
-    # than the card, so the outer columns get their sideways bleed.
-    if bleeds[(0, 0)][0] <= 0:
-        raise AssertionError(
-            "slot (0,0) got no left bleed from a source with spare width: "
-            "{}".format(bleeds)
-        )
 
-
-@check("export: a source with no spare pixels gets no bleed, and no white band")
-def _bleed_degrades_gracefully() -> None:
-    # 2:3 exactly: crop_to_fill consumes 100% of both axes, so nothing is left
-    # over to bleed with.  The drawn box must then equal the card box -- never
-    # a bled box with blank edges.
-    cards = [CardArt(name="exact", image=band_fixture(1200, 1800))]
-    result = export_batch(cards, OUT / "no-bleed.pdf", flip=Flip.LONG_EDGE)
+@check("export: bleed still works when switched back on")
+def _bleed_machinery_still_works() -> None:
+    # The bleed code is kept rather than deleted, so it stays proven: raise
+    # outer_bleed_mm and the outer edges must grow, using source pixels from
+    # outside the trim crop.
+    layout = SheetLayout.fit(outer_bleed_mm=3.0)
+    cards = [CardArt(name="bleeder", image=band_fixture(928, 1232)) for _ in range(4)]
+    result = export_batch(
+        cards, OUT / "bleed-on.pdf", layout=layout, flip=Flip.LONG_EDGE
+    )
     page = read_pages(result.paths[0])[0]
-    equal(len(page.placements), 1, "placements")
-    placement = page.placements[0]
-    card = SHEET.card_box(0, 0)
-    near(placement.x_mm, card.x_mm, 0.01, "no bleed: x")
-    near(placement.y_mm, card.y_mm, 0.01, "no bleed: y")
-    near(placement.w_mm, card.w_mm, 0.01, "no bleed: width")
-    near(placement.h_mm, card.h_mm, 0.01, "no bleed: height")
+    grew = 0
+    for placement in page.placements:
+        card = layout.card_box(*slot_of(placement, layout))
+        left = card.x_mm - placement.x_mm
+        right = (placement.x_mm + placement.w_mm) - card.right_mm
+        if left > 0.01 or right > 0.01:
+            grew += 1
+        # crop_to_fill always uses 100% of one axis, so that axis never has a
+        # spare pixel: this source is wider than the card, so top and bottom
+        # can never bleed however large the setting.
+        near(placement.h_mm, card.h_mm, 0.01, "no vertical bleed is available")
+    equal(grew, 4, "outer columns took their sideways bleed")
 
 
 # --------------------------------------------------------------------------

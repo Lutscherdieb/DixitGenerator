@@ -183,18 +183,38 @@ not bleed produces a smaller box rather than a white band.
 checks is that every placement *contains* its card box and stays inside that
 maximum.
 
-### Four-side bleed is structurally impossible here, and that is fine
+### Four-side bleed is structurally impossible here
 
 `crop_to_fill` is maximal: it keeps 100% of the width *or* 100% of the height.
 So one axis never has a spare pixel, and bleed on that axis is always zero - for
 any source, at any resolution. Rendering art larger does not change this.
 
-Getting bleed on all four sides would require a deliberately *non-maximal* crop,
-showing less of every picture in order to protect the 8 outer edges of a
-16-edge sheet. The other 8 edges are shared cut lines that compensate
-themselves, and the outer ones are the easiest cuts to make accurately because
-the crop marks sit in clear margin. Not worth the trade; revisit only if real
-sheets show white slivers.
+That asymmetry is half of why bleed was switched off (below); the other half is
+that a card pushed to its focus limit has no spare pixels on that side either,
+so it got no bleed while its neighbour got the full 3 mm.
+
+### Bleed is off: the drawn box is the cut box
+
+**Reversed 2026-09-23, the author's decision.** `outer_bleed_mm` defaults to
+**0**, so every drawn box is exactly its card box and nothing is printed outside
+a cut line.
+
+What it cost: a cut landing outside the block's outer perimeter now leaves a
+hairline white sliver, where up to 3 mm of bleed would have covered it. The
+author's call was to cut the outer border cleanly instead. Interior cuts are
+unaffected either way - they are shared between two cards and compensate
+themselves.
+
+What it did **not** cost: any of the picture. The trim crop was already maximal,
+so removing bleed shows exactly as much of a source as before - a 928 x 1232
+upload framed 821 x 1232 px of itself with bleed on, and frames 821 x 1232 px
+with it off. Bleed never zoomed anything in; that impression came from the older
+bug above, where the trim line really was eating into the picture.
+
+The machinery is kept, not deleted, and `export: bleed still works when switched
+back on` keeps it proven: raise `outer_bleed_mm` and bleed returns, correctly,
+on every side that has material to give. Crop marks moved in with it - they now
+start 1.5 mm outside the block rather than 4.5 mm.
 
 ### The flip mapping is only observable on a part-full sheet
 

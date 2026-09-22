@@ -9,7 +9,7 @@ print-ready PDF.
 
 Two checks, both green:
 
-- `python tests/run_tests.py` — the verify gate, **32 checks**. Exports fixture
+- `python tests/run_tests.py` — the verify gate, **33 checks**. Exports fixture
   batches in all three duplex modes and parses the PDFs back off disk to measure
   them; checks that a cut card shows exactly the grid tile's crop in every slot;
   and exercises the library from upload through crop focus, tags and delete to
