@@ -4,20 +4,24 @@ Turn uploaded artwork into print-ready A4 duplex PDF sheets of 80 x 120 mm Dixit
 
 ## Status
 
-**Print geometry and the card library are built and proven.**
+**Usable end to end.** Drop images in, organise them, select a batch, export a
+print-ready PDF.
 
-`python tests/run_tests.py` runs **30 checks, all passing**: it exports fixture
-batches in all three duplex modes and parses the PDFs back off disk to measure
-them, and it exercises the library end to end — upload, crop focus, tags,
-delete, and the path from stored bytes to the raster embedded in the PDF.
+Two checks, both green:
 
-Done: the measurement layer (`dixitgen.spec`), crop-to-fill, thumbnails, the
-SQLite library (`dixitgen.store`), the PDF export, and the verify gate.
+- `python tests/run_tests.py` — the verify gate, **30 checks**. Exports fixture
+  batches in all three duplex modes and parses the PDFs back off disk to measure
+  them; exercises the library from upload through crop focus, tags and delete to
+  the raster embedded in the PDF.
+- `python tests/check_gallery.py` — **10 checks** driving real Chromium: upload,
+  select, drag the crop, filter, the backs shelf, export and delete. It starts
+  its own throwaway server on 8776 with a scratch database and stops it again,
+  and refuses to run against your real library.
 
-Not started, in the order they are wanted: the upload/list/tag API beyond
-`/api/meta`, the browser overview you batch-select from, and
-`tools/calibration_sheet.py`. The export and the library are both finished, so
-the overview's job is to let you pick rows and hand them to `export_batch`.
+Not built yet: `tools/calibration_sheet.py`. Until it exists, the calibration
+procedure in [docs/PRINTING.md](docs/PRINTING.md) works today — print a test
+sheet, hold it to the light, and read the gap between the front and back crop
+marks.
 
 ## What this is
 
@@ -51,8 +55,8 @@ Verify a change with: `python tests/run_tests.py > tests/last-run.txt 2>&1`
 | [`src/dixitgen/export/`](src/dixitgen/export/) | Batch → PDF. The only writer of print output |
 | [`src/dixitgen/web/`](src/dixitgen/web/) | The local JSON API (CherryPy). `/api/meta` serves the spec to the browser |
 | [`src/dixitgen/cli.py`](src/dixitgen/cli.py) | `dixitgen serve` — what `serve.bat` calls |
-| [`web/`](web/) | The browser overview: static ES modules, no build step. Types no measurement of its own |
-| [`tests/`](tests/) | The verify gate, and `pdf_probe.py` — which reads a written PDF back into millimetres |
+| [`web/`](web/) | The browser overview: static ES modules, no build step, acyclic. Types no measurement of its own — they all arrive from `/api/meta` |
+| [`tests/`](tests/) | `run_tests.py` (the verify gate), `pdf_probe.py` (reads a written PDF back into millimetres), and `check_gallery.py` (drives a real browser) |
 | [`tools/`](tools/) | `check_geometry_literals.py`: fails if a measurement is typed outside `dixitgen.spec` |
 | `data/` | SQLite database (gitignored) |
 | `out/` | Exported PDFs (gitignored) |

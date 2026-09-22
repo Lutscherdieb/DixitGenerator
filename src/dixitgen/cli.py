@@ -22,12 +22,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         "(default: %(default)s)",
     )
     serve_cmd.add_argument("--host", default="127.0.0.1")
+    serve_cmd.add_argument(
+        "--db",
+        default=None,
+        help="database URL; defaults to DIXIT_DB_URL, then data/cards.db. "
+        "A throwaway server for testing should point at a scratch database "
+        "so it cannot write to the real library.",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "serve":
         from .web.app import serve
 
-        serve(port=args.port, host=args.host)
+        serve(port=args.port, host=args.host, db_url=args.db)
         return 0
 
     parser.error("unknown command {!r}".format(args.command))

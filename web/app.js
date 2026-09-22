@@ -1,50 +1,145 @@
-// The overview client.  No build step: plain ES modules, loaded directly.
+// Wiring. This module is the only one that knows about all the others, which
+// keeps the rest acyclic:
+//     api <- state <- {grid, editor, upload, backs, exporter} <- app
 //
-// Rule this file lives under: it never types a print measurement.  Every
-// number comes from /api/meta, which serves dixitgen.spec.  The check in
-// tools/check_geometry_literals.py scans web/ for unit-anchored literals and
-// fails the build if one appears here.
+// It types no print measurement. Every number shown comes from /api/meta,
+// which serves dixitgen.spec; tools/check_geometry_literals.py scans web/ and
+// fails the build if a literal appears here.
 
-const $ = (sel) => document.querySelector(sel);
+import { api } from "./api.js";
+import { $, el, fail, say } from "./dom.js";
+import { renderBacks, wireBackUpload } from "./backs.js";
+import { closeEditor, openEditor } from "./editor.js";
+import { closeExport, openExport, runExport } from "./exporter.js";
+import { renderGrid } from "./grid.js";
+import { clearSelection, emit, selectAll, state, subscribe } from "./state.js";
+import { wireUpload } from "./upload.js";
 
-async function fetchMeta() {
-  const response = await fetch("/api/meta");
-  if (!response.ok) {
-    throw new Error(`/api/meta returned ${response.status}`);
+async function reload() {
+  const [cards, tags, backs] = await Promise.all([
+    api.listCards(state.filter),
+    api.listTags(),
+    api.listBacks(),
+  ]);
+  state.cards = cards.cards;
+  state.tags = tags.tags;
+  state.backs = backs.backs;
+  // Drop anything deleted or filtered away, so an export can never carry an id
+  // the grid is no longer showing.
+  const visible = new Set(state.cards.map((card) => card.id));
+  state.selection = state.selection.filter((id) => visible.has(id));
+  emit();
+}
+
+function renderToolbar() {
+  const tagSelect = $("#filter-tag");
+  if (tagSelect) {
+    const current = state.filter.tag;
+    tagSelect.innerHTML = "";
+    tagSelect.append(el("option", { value: "" }, "All tags"));
+    for (const tag of state.tags) {
+      tagSelect.append(
+        el(
+          "option",
+          { value: tag.name, selected: tag.name === current },
+          `${tag.name} (${tag.count})`
+        )
+      );
+    }
   }
-  return response.json();
+
+  const count = $("#selection-count");
+  if (count) {
+    count.textContent = state.selection.length
+      ? `${state.selection.length} selected`
+      : `${state.cards.length} card${state.cards.length === 1 ? "" : "s"}`;
+  }
+  const exportButton = $("#export-open");
+  if (exportButton) exportButton.disabled = state.selection.length === 0;
 }
 
-function row(term, value) {
-  return `<dt>${term}</dt><dd>${value}</dd>`;
+function renderSpecLine() {
+  const line = $("#spec-line");
+  if (!line || !state.meta) return;
+  const { card, paper, sheet } = state.meta;
+  line.textContent =
+    `${card.label} · ${paper.label} · ${sheet.cols}×${sheet.rows} = ` +
+    `${sheet.cards_per_sheet} per sheet · ${card.dpi} DPI`;
 }
 
-function render(meta) {
-  const { card, paper, sheet, flips } = meta;
-  const mm = (n) => `${n} mm`;
-
-  $("#spec").innerHTML = [
-    row("Card", `${card.label} &mdash; ${mm(card.trim_w_mm)} &times; ${mm(card.trim_h_mm)}`),
-    row("At print resolution", `${card.trim_w_px} &times; ${card.trim_h_px} px at ${card.dpi} DPI`),
-    row("Aspect", card.aspect.toFixed(4).replace(/0+$/, "")),
-    row("Paper", paper.label),
-    row("Grid", `${sheet.cols} &times; ${sheet.rows} &mdash; ${sheet.cards_per_sheet} cards per sheet`),
-    row("Block", `${mm(sheet.block_w_mm)} &times; ${mm(sheet.block_h_mm)}`),
-    row("Margins", `${mm(sheet.margin_x_mm)} left/right, ${mm(sheet.margin_y_mm)} top/bottom`),
-    row("Outer bleed", `${mm(sheet.outer_bleed_mm)} on the block's outer edges only`),
-    row(
-      "Duplex modes",
-      flips
-        .map((f) => `${f.id}${f.back_rotation_deg ? ` (back turned ${f.back_rotation_deg}&deg;)` : ""}`)
-        .join(", ")
-    ),
-    row("Version", meta.version),
-  ].join("");
+function renderAll() {
+  renderToolbar();
+  renderGrid((card) => openEditor(card, { onSaved: reload, onDeleted: reload }));
+  renderBacks(reload);
 }
 
-function renderError(err) {
-  $("#spec").innerHTML =
-    `<dd class="error">Could not read /api/meta: ${err.message}</dd>`;
+function wireToolbar() {
+  const search = $("#filter-q");
+  let timer = null;
+  if (search) {
+    search.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        state.filter.q = search.value.trim();
+        try {
+          await reload();
+        } catch (error) {
+          fail(error);
+        }
+      }, 200);
+    });
+  }
+
+  const tagSelect = $("#filter-tag");
+  if (tagSelect) {
+    tagSelect.addEventListener("change", async () => {
+      state.filter.tag = tagSelect.value;
+      try {
+        await reload();
+      } catch (error) {
+        fail(error);
+      }
+    });
+  }
+
+  const on = (id, event, handler) => {
+    const node = $(id);
+    if (node) node.addEventListener(event, handler);
+  };
+  on("#select-all", "click", selectAll);
+  on("#select-none", "click", clearSelection);
+  on("#export-open", "click", openExport);
+  on("#export-close", "click", closeExport);
+  on("#export-run", "click", runExport);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeExport();
+    closeEditor();
+  });
 }
 
-fetchMeta().then(render).catch(renderError);
+async function main() {
+  subscribe(renderAll);
+  wireToolbar();
+  wireUpload(reload);
+  wireBackUpload(reload);
+
+  try {
+    state.meta = await api.meta();
+    renderSpecLine();
+    await reload();
+    say("");
+    // An explicit readiness flag, for tests and for anyone watching the page
+    // wake up. Waiting on an element instead proves nothing: #spec-line and
+    // #grid both exist in the static HTML before a single byte of data has
+    // arrived, so a check that waits for them races the app and passes or
+    // fails by luck.
+    document.body.dataset.ready = "true";
+  } catch (error) {
+    document.body.dataset.ready = "error";
+    fail(error);
+  }
+}
+
+main();

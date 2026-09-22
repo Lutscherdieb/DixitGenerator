@@ -8,41 +8,63 @@
 </head>
 <body>
   <header>
-    <h1>DixitGenerator</h1>
-    <p class="sub">Custom Dixit cards, from uploaded artwork to a cut sheet.</p>
+    <div class="head-left">
+      <h1>DixitGenerator</h1>
+      <p class="sub" id="spec-line">Loading the print spec…</p>
+    </div>
+    <div class="head-right">
+      <label class="file-button">
+        Add cards
+        <input type="file" id="file-input" accept="image/*" multiple hidden>
+      </label>
+      <input type="text" id="upload-tag" placeholder="tag new uploads…" title="Applied to every file in the next drop or pick">
+    </div>
   </header>
 
+  <p id="status" hidden></p>
+
+  <div class="toolbar">
+    <input type="search" id="filter-q" placeholder="Search names and notes">
+    <select id="filter-tag"><option value="">All tags</option></select>
+    <span class="spacer"></span>
+    <span id="selection-count" class="count">0 cards</span>
+    <button type="button" id="select-all" class="ghost">Select all</button>
+    <button type="button" id="select-none" class="ghost">Clear</button>
+    <button type="button" id="export-open" class="primary" disabled>Export…</button>
+  </div>
+
   <main>
-    <section class="panel" id="spec-panel">
-      <h2>Print geometry</h2>
-      <p class="note">
-        Served from <code>/api/meta</code>. Every number on this page is read
-        from <code>dixitgen.spec</code> &mdash; the browser never types a
-        measurement of its own, and
-        <code>tools/check_geometry_literals.py</code> enforces that.
-      </p>
-      <dl id="spec"><dd class="loading">Loading&hellip;</dd></dl>
-    </section>
+    <section id="editor" class="panel editor" hidden></section>
+    <section id="grid" class="grid"></section>
 
     <section class="panel">
-      <h2>Not built yet</h2>
-      <p>
-        The print geometry and its verify gate are in place. What comes next,
-        in order:
-      </p>
-      <ol class="roadmap">
-        <li><strong>Store</strong> &mdash; SQLite: card images, backs, names, tags, notes, crop focus.</li>
-        <li><strong>API</strong> &mdash; upload, list, filter by tag, edit, delete.</li>
-        <li><strong>Overview</strong> &mdash; the grid you browse and batch-select from.</li>
-        <li><strong>Export</strong> &mdash; wire the selection to <code>dixitgen.export</code>, which already works.</li>
-        <li><strong>Calibration sheet</strong> &mdash; measure this printer's duplex drift once.</li>
-      </ol>
+      <h2>
+        Backs
+        <label class="file-button small">
+          Add a back
+          <input type="file" id="back-input" accept="image/*" multiple hidden>
+        </label>
+      </h2>
       <p class="note">
-        See <code>PROJECT.md</code> for the constitution and
-        <code>docs/PRINTING.md</code> for how to print and cut.
+        A back applies to a whole exported batch. Kept apart from the cards on
+        purpose — a back is not a playable card.
       </p>
+      <div id="backs" class="backs"></div>
     </section>
   </main>
+
+  <div id="export-dialog" class="dialog" hidden>
+    <div class="dialog-panel" role="dialog" aria-modal="true" aria-label="Export">
+      <h2>Export a batch</h2>
+      <div id="export-body"></div>
+      <div class="dialog-actions">
+        <button type="button" id="export-run" class="primary">Write the PDF</button>
+        <button type="button" id="export-close" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drop-hint">Drop images to add them</div>
 
   <script type="module" src="/web/app.js"></script>
 </body>

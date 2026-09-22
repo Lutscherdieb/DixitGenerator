@@ -96,17 +96,44 @@ would not register produces no file at all.
 
 ### `dixitgen.web` + `web/` — the overview
 
-CherryPy serves JSON under `/api` and the static client under `/web`. The client
-is plain ES modules, no build step. **8775 is the author's port, 8776 is a
-throwaway** — the split is in CLAUDE.md and exists so that stopping one can
-never take the other down.
+CherryPy serves JSON under `/api` and the static client under `/web`. **8775 is
+the author's port, 8776 is a throwaway** — the split is in CLAUDE.md and exists
+so that stopping one can never take the other down.
 
-### `tests/` — the gate
+`/api/meta` also reports `is_default_library`: a boolean saying whether this
+server is serving the real `data/cards.db`. `tests/check_gallery.py` uploads,
+edits and **deletes**, so it refuses to run when that is true. A boolean, not a
+path — the guard needs no filesystem detail.
 
-`pdf_probe.py` reads a written PDF back into plain millimetres: it walks the
-content stream, tracks the graphics-state stack and the CTM, and reports image
-placements and stroked lines. `run_tests.py` uses it to check the **file**, not
-the layout object that produced it.
+The client is plain ES modules, no build step, acyclic by construction:
+
+```
+  api.js ◀── state.js ◀── grid / editor / upload / backs / exporter ◀── app.js
+```
+
+`app.js` is the only module that imports all the others. It sets
+`document.body.dataset.ready` when the first load completes — an explicit
+readiness signal, because `#grid` and `#spec-line` both exist in the static HTML
+and a test that waits for *them* races the fetches.
+
+Selection is an **ordered list**, not a `Set`: an export batch is a selection in
+the order you made it, the tile badges show that order, and
+`store.list_cards(ids=…)` preserves it server-side. A `Set` would silently
+reorder the printed deck.
+
+### `tests/` — two checks, deliberately separate
+
+`run_tests.py` is the verify gate: geometry, the store, and PDFs parsed back off
+disk. `pdf_probe.py` does that parsing — it walks the content stream, tracks the
+graphics-state stack and the CTM, and reports image placements and stroked
+lines, so the gate checks the **file** rather than the layout object that
+produced it.
+
+`check_gallery.py` drives real Chromium against a running server. It is not part
+of the gate and `web/**` is not in `source_globs`, because exporting a PDF proves
+nothing about the browser. It earns that separation: it caught a POST that a
+redirect was silently turning into a GET, which no amount of PDF measuring could
+have seen.
 
 ## Decisions & reversals
 
@@ -208,6 +235,31 @@ and an open handle makes the file undeletable. The gate's `scratch_engine()`
 calls `dispose()` before `unlink()`; without it every check after the first
 died with `PermissionError: [WinError 32] The process cannot access the file
 because it is being used by another process`.
+
+### Turn CherryPy's trailing-slash redirect off
+
+CherryPy answers `/api/export` with a 301 to `/api/export/`. A browser replays a
+redirected POST as a **GET**, so every export from the UI arrived as
+`GET /api/export/` and was refused 405 — while the identical call through `curl`
+worked, because curl without `-L` does not follow it at all. `tools.trailing_slash.on`
+is off for the whole app.
+
+### Never pipe a server's stdout somewhere nobody reads
+
+`check_gallery.py` starts its server with output going to a **file**. With
+`stdout=subprocess.PIPE` and no reader, CherryPy's per-request logging fills the
+OS pipe buffer (~64 KB on Windows) partway through the first page load — nine ES
+modules, a stylesheet and several API calls — and the server then blocks forever
+on its own log write. The symptom is maddening and points nowhere: the page
+half-loads, the browser console is silent, and every selector times out.
+
+### A browser check reports what the page looked like
+
+When a check fails it prints the page's own status bar, the tile count, the
+browser console and the tail of the server log, and saves a screenshot. The
+client puts every API error into the status bar, so that one line usually *is*
+the answer — without it the first two failures above cost far more than they
+should have.
 
 ### No rounded corners in the PDF
 

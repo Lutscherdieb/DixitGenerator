@@ -49,7 +49,7 @@ Plus the derivation cross-check: the mm-to-point conversion must reproduce figur
 
 Run it from VS Code with **Terminal -> Run Task -> `Verify`**, or by hand with the command above.
 
-**The gate does not cover the browser overview.** `web/**` is mapped to `docs/ARCHITECTURE.md` but deliberately kept out of `source_globs`: exporting a PDF proves nothing about the browser UI, so demanding the gate for a frontend edit would be ritual rather than verification. The frontend's check is `tests/check_gallery.py`, which drives a real browser and needs the overview **already running** — start it with `serve.bat`, then run it against that. It honours `DIXIT_URL`, which is how Claude points it at its own throwaway server on 8776 instead of yours on 8775.
+**The gate does not cover the browser overview.** `web/**` is mapped to `docs/ARCHITECTURE.md` but deliberately kept out of `source_globs`: exporting a PDF proves nothing about the browser UI, so demanding the gate for a frontend edit would be ritual rather than verification. The frontend's check is `tests/check_gallery.py`, which drives real Chromium through upload, selection, the crop drag, filtering, the backs shelf, export and delete. Run it with no arguments and it starts its own throwaway server on 8776 against a scratch database and stops it again. Set `DIXIT_URL` to point it at a server you started yourself — and note that it **writes**, so it refuses to run against the real library (`/api/meta` reports `is_default_library` for exactly this).
 
 Uploaded artwork is validated separately and advisorily: an image that resolves below 945 x 1417 px at the card's placed size gets a soft-print warning. That is a warning by design, never a block — a deliberately low-res or painterly source is the author's call.
 
@@ -68,7 +68,7 @@ Uploaded artwork is validated separately and advisorily: an image that resolves 
 
 ## Open direction notes
 
-- **Built so far: the print geometry, the crop, the card library and the export.** Next, in order: the upload/list/tag API beyond `/api/meta`, the browser overview you batch-select from, then `tools/calibration_sheet.py`. Both ends already exist, so the overview's only job is to let you pick rows and hand them to `export_batch`.
+- **Built: the print geometry, the crop, the card library, the API, the browser overview and the export.** The one piece left from the original plan is `tools/calibration_sheet.py`.
 - **`data/cards.db` holds the only copy of every uploaded image, and deletion is permanent.** That was the deliberate choice over soft delete (2026-09-22): the confirmation lives in the UI. Back the file up before a big tidy-up — it is one file, and copying it copies the whole library.
 - **The calibration sheet is not optional polish.** Home-printer duplex drift of 1-2 mm is normal and is exactly the error that ruins a batch of 84 cards. Build `tools/calibration_sheet.py` before the first real print run, not after.
 - **Decide how a batch remembers its back.** An export currently takes a back image as a parameter. If re-exporting the same deck becomes routine, a saved batch (selection + back + duplex mode) is worth more than a bigger export dialog. Author's call once the overview exists.

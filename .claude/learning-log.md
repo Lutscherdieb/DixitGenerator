@@ -72,3 +72,27 @@ this example from being scanned as a real candidate by `/base:promote`):
 - home: tests/run_tests.py (`band_fixture` docstring)
 - evidence: `corner_colour` samples at 1/4 and 3/4 of each axis. Cropping a square quadrant fixture to 2:3 keeps two thirds of the width, putting the 3/4 sample exactly on the red/green seam: the assertion read `RGB(108, 146, 2)` and failed against correct code. Three vertical bands at thirds put every sample point in the middle of one colour.
 - applications: 2026-09-22
+
+## 2026-09-22 — never-pipe-a-subprocess-log-nobody-reads
+- scope: generic
+- status: candidate
+- rule: When a test starts a long-running server as a subprocess, send its stdout/stderr to a FILE, never to `subprocess.PIPE` that nothing drains. Print the file's tail when a check fails, so the server's own account of the request is in the failure output.
+- home: tests/check_gallery.py (`start_server`, `_server_log_tail`), docs/ARCHITECTURE.md#never-pipe-a-servers-stdout-somewhere-nobody-reads
+- evidence: CherryPy logs one line per request. With `stdout=subprocess.PIPE` unread, the OS pipe buffer (~64KB on Windows) filled partway through the first page load — nine ES modules, a stylesheet and several API calls — and the server blocked forever writing its own log. The symptom points nowhere: the page half-loads, the browser console is silent, and every selector times out. The same page loaded fine by hand because the log went to a file.
+- applications: 2026-09-22
+
+## 2026-09-22 — wait-for-a-readiness-signal-not-a-static-element
+- scope: generic
+- status: candidate
+- rule: Have the app set an explicit readiness flag (`document.body.dataset.ready`) when its first load completes, and have browser checks wait on that. Never wait on an element that exists in the served HTML — it is present before any data arrives, so the check races the app and passes or fails by luck.
+- home: web/app.js (end of `main`), tests/check_gallery.py (`run_checks` first wait), docs/ARCHITECTURE.md#dixitgenweb--web--the-overview
+- evidence: the check waited for `#spec-line`, which is in index.html carrying the placeholder "Loading the print spec…". It passed on one run and failed the next with `the header does not show the card format from /api/meta: 'Loading the print spec…'` — same code, different timing.
+- applications: 2026-09-22
+
+## 2026-09-22 — a-redirect-turns-a-post-into-a-get
+- scope: generic
+- status: candidate
+- rule: Make the server answer the exact URL the client calls; do not let a framework's trailing-slash redirect stand in front of a POST endpoint. A browser replays a redirected POST as a GET, so the handler sees the wrong method and the body is gone. Verify with a browser, not curl: curl without `-L` does not follow the redirect at all and reports success.
+- home: src/dixitgen/web/app.py (`tools.trailing_slash.on: False`), docs/ARCHITECTURE.md#turn-cherrypys-trailing-slash-redirect-off
+- evidence: `POST /api/export HTTP/1.1" 301` followed immediately by `GET /api/export/ HTTP/1.1" 405` in the server log. Export was broken from the UI and working through curl; only tests/check_gallery.py, driving a real browser, could see it. This is the concrete payoff for keeping a browser check separate from the verify gate.
+- applications: 2026-09-22
