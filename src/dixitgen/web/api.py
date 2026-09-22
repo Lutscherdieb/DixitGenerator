@@ -17,8 +17,12 @@ Shape
     POST   /api/backs/upload
     GET    /api/backs/{id}/thumb
     DELETE /api/backs/{id}
-    POST   /api/export                {card_ids, back_id, flip, offset_mm}
-    GET    /api/export/file/{name}    download a written PDF
+    PUT    /api/backs/{id}            {name}
+    PUT    /api/backs/{id}/focus      {x, y}
+    GET    /api/backs/{id}/image      the original upload
+    POST   /api/export                starts a job; 202 with {job_id}
+    GET    /api/export/status/{id}    {state, done, total, percent, files}
+    GET    /api/export/file/{name}    the PDF inline; ?download=1 to save
 
 Errors come back as JSON (``{"error": "..."}``), never CherryPy's HTML page:
 the browser client shows the message, and an HTML body in a fetch() is just a
@@ -29,6 +33,10 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
+import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import List, Optional
 
@@ -115,8 +123,10 @@ def back_json(back: store.Back) -> dict:
         "src_w": back.src_w,
         "src_h": back.src_h,
         "soft": DIXIT.art_is_soft(back.src_w, back.src_h, box.w_mm, box.h_mm),
+        "focus": {"x": back.focus_x, "y": back.focus_y},
         "created": back.created_at.isoformat() if back.created_at else None,
         "thumb_url": "/api/backs/{}/thumb".format(back.id),
+        "image_url": "/api/backs/{}/image".format(back.id),
     }
 
 
@@ -278,6 +288,7 @@ class BacksApi:
         return {"created": created, "skipped": skipped}
 
     @cherrypy.expose
+    @cherrypy.tools.json_in(force=False)
     def default(self, back_id: str, action: Optional[str] = None, **_ignored):
         try:
             ident = int(back_id)
@@ -290,15 +301,37 @@ class BacksApi:
                 _fail(404, str(exc))
             if action == "thumb":
                 _require("GET")
+                cherrypy.response.headers["Cache-Control"] = "no-cache"
                 return _serve_bytes(back.thumb, "image/jpeg")
+
+            if action == "image":
+                _require("GET")
+                return _serve_bytes(back.image, back.image_mime)
+
+            if action == "focus":
+                _require("PUT")
+                body = _body()
+                try:
+                    focus = (float(body.get("x", 0.5)), float(body.get("y", 0.5)))
+                except (TypeError, ValueError):
+                    _fail(400, "focus needs numeric x and y")
+                return _json(back_json(store.set_back_focus(session, ident, focus)))
+
             if action is not None:
                 _fail(404, "no such action: {}".format(action))
-            if cherrypy.request.method == "DELETE":
+
+            method = cherrypy.request.method
+            if method == "DELETE":
                 store.delete_back(session, ident)
                 return _json({"deleted": ident})
-            if cherrypy.request.method == "GET":
+            if method == "GET":
                 return _json(back_json(back))
-            _fail(405, "{} not allowed here".format(cherrypy.request.method))
+            if method == "PUT":
+                body = _body()
+                return _json(
+                    back_json(store.update_back(session, ident, name=body.get("name")))
+                )
+            _fail(405, "{} not allowed here".format(method))
 
 
 class TagsApi:
@@ -319,9 +352,43 @@ class TagsApi:
 
 
 class ExportApi:
+    """Export runs as a background job, so the browser can show real progress.
+
+    A deck of eighty cards is eighty large rasters cropped and embedded; doing
+    that inside the POST would hold the request open for many seconds with
+    nothing to show for it. Instead the POST starts a worker and returns a job
+    id straight away, and the client polls ``/api/export/status/<id>``.
+
+    The progress number is honest -- ``export_batch`` counts each card actually
+    drawn, front or back -- rather than an animation timed to finish when the
+    request does.
+    """
+
+    #: How many finished jobs to remember, so a client that polls late still
+    #: gets its answer. Oldest are dropped first.
+    MAX_JOBS = 20
+
     def __init__(self, engine):
         self.engine = engine
+        self._jobs = OrderedDict()
+        self._lock = threading.Lock()
 
+    # -- job bookkeeping ---------------------------------------------------
+    def _put(self, job_id: str, **fields) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id, {})
+            job.update(fields)
+            self._jobs[job_id] = job
+            self._jobs.move_to_end(job_id)
+            while len(self._jobs) > self.MAX_JOBS:
+                self._jobs.popitem(last=False)
+
+    def _get(self, job_id: str) -> Optional[dict]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return dict(job) if job else None
+
+    # -- starting ----------------------------------------------------------
     @cherrypy.expose
     @cherrypy.tools.json_in(force=False)
     @cherrypy.tools.json_out()
@@ -348,53 +415,119 @@ class ExportApi:
         name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "batch"
         out_path = EXPORT_DIR / "{}.pdf".format(name)
 
+        try:
+            ids = [int(i) for i in card_ids]
+        except (TypeError, ValueError):
+            _fail(400, "card_ids must be numbers")
+        back_id = body.get("back_id")
+        back_id = int(back_id) if back_id else None
+
+        # Validate against the library before promising a job: a bad id should
+        # be a 400 seen immediately, not a job that fails a second later.
         with store.session_scope(self.engine) as session:
             try:
-                cards = store.batch_for_export(session, [int(i) for i in card_ids])
-            except (store.StoreError, ValueError) as exc:
+                store.list_cards(session, ids=ids)
+                if back_id:
+                    store.get_back(session, back_id)
+            except store.StoreError as exc:
                 _fail(400, str(exc))
 
-            back_image = None
-            back_id = body.get("back_id")
-            if back_id:
-                try:
-                    back_image = store.to_back_image(
-                        store.get_back(session, int(back_id))
-                    )
-                except (store.StoreError, ValueError) as exc:
-                    _fail(400, str(exc))
+        job_id = uuid.uuid4().hex
+        self._put(
+            job_id,
+            state="running",
+            done=0,
+            total=len(ids) * (2 if back_id else 1),
+            files=[],
+            warnings=[],
+            error=None,
+            started=time.time(),
+            name=name,
+        )
 
-            try:
-                result = export_batch(
-                    cards,
-                    out_path,
-                    back=back_image,
-                    flip=flip,
-                    offset_mm=offset_mm,
-                )
-            except GeometryError as exc:
-                # The export refused to write. Say so plainly: this is the
-                # assertion PROJECT.md promises, not a crash.
-                _fail(500, "the layout would not register, so nothing was written: {}".format(exc))
+        worker = threading.Thread(
+            target=self._run,
+            args=(job_id, ids, back_id, out_path, flip, offset_mm),
+            daemon=True,
+            name="export-{}".format(job_id[:8]),
+        )
+        worker.start()
 
-        return {
-            "sheets": result.sheets,
-            "cards": result.cards,
-            "flip": result.flip.value,
-            "warnings": result.warnings,
-            "files": [
-                {
-                    "name": path.name,
-                    "size": path.stat().st_size,
-                    "url": "/api/export/file/{}".format(path.name),
-                }
-                for path in result.paths
-            ],
-        }
+        cherrypy.response.status = 202
+        return {"job_id": job_id, "status_url": "/api/export/status/{}".format(job_id)}
 
+    def _run(self, job_id, ids, back_id, out_path, flip, offset_mm) -> None:
+        """The worker. Opens its own session -- sessions are not thread-safe."""
+        try:
+            with store.session_scope(self.engine) as session:
+                cards = store.batch_for_export(session, ids)
+                back_image = None
+                back_focus = (0.5, 0.5)
+                if back_id:
+                    back = store.get_back(session, back_id)
+                    back_image = store.to_back_image(back)
+                    back_focus = back.focus
+
+            result = export_batch(
+                cards,
+                out_path,
+                back=back_image,
+                flip=flip,
+                offset_mm=offset_mm,
+                back_focus=back_focus,
+                progress=lambda done, total: self._put(job_id, done=done, total=total),
+            )
+        except GeometryError as exc:
+            self._put(
+                job_id,
+                state="error",
+                error="the layout would not register, so nothing was written: {}".format(exc),
+            )
+        except Exception as exc:  # noqa: BLE001 -- the job reports, never crashes
+            self._put(
+                job_id,
+                state="error",
+                error="{}: {}".format(type(exc).__name__, exc),
+            )
+        else:
+            self._put(
+                job_id,
+                state="done",
+                sheets=result.sheets,
+                cards=result.cards,
+                flip=result.flip.value,
+                warnings=result.warnings,
+                files=[
+                    {
+                        "name": path.name,
+                        "size": path.stat().st_size,
+                        "url": "/api/export/file/{}".format(path.name),
+                        "download_url": "/api/export/file/{}?download=1".format(path.name),
+                    }
+                    for path in result.paths
+                ],
+            )
+
+    # -- polling -----------------------------------------------------------
     @cherrypy.expose
-    def file(self, filename: str):
+    @cherrypy.tools.json_out()
+    def status(self, job_id: str):
+        _require("GET")
+        job = self._get(job_id)
+        if job is None:
+            _fail(404, "no such export job (it may have aged out)")
+        total = job.get("total") or 0
+        done = job.get("done") or 0
+        job["percent"] = round(100 * done / total) if total else 0
+        return job
+
+    # -- serving the result ------------------------------------------------
+    @cherrypy.expose
+    def file(self, filename: str, download: Optional[str] = None):
         """Serve a written PDF back to the browser.
+
+        Inline by default, so "Open" shows it in the browser's PDF viewer;
+        ``?download=1`` attaches it, so "Download" saves it.
 
         The name is matched against a strict whitelist rather than joined and
         hoped for: this process can read the whole disk, and a path like
@@ -406,4 +539,8 @@ class ExportApi:
         path = (EXPORT_DIR / filename).resolve()
         if path.parent != EXPORT_DIR.resolve() or not path.is_file():
             _fail(404, "no such export")
-        return _serve_bytes(path.read_bytes(), "application/pdf", filename)
+        return _serve_bytes(
+            path.read_bytes(),
+            "application/pdf",
+            filename if download else None,
+        )

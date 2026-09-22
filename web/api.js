@@ -3,6 +3,10 @@
 // Nothing in web/ types a print measurement: the numbers all arrive from
 // /api/meta, which serves dixitgen.spec. tools/check_geometry_literals.py
 // scans this directory and fails the build if one appears.
+//
+// Cards and backs are the same shape of resource — both are an image with a
+// name and a crop focus — so the verbs are generic and take a `kind` of
+// "cards" or "backs". That is what lets one editor serve both.
 
 async function request(url, options = {}) {
   const response = await fetch(url, options);
@@ -25,9 +29,25 @@ const json = (method, body) => ({
   body: JSON.stringify(body),
 });
 
+function uploadForm(files, extra = {}) {
+  const form = new FormData();
+  for (const file of files) form.append("files", file, file.name);
+  for (const [key, value] of Object.entries(extra)) {
+    if (value) form.append(key, value);
+  }
+  return form;
+}
+
 export const api = {
   meta: () => request("/api/meta"),
 
+  // -- generic over cards and backs ----------------------------------------
+  update: (kind, id, fields) => request(`/api/${kind}/${id}`, json("PUT", fields)),
+  setFocus: (kind, id, x, y) =>
+    request(`/api/${kind}/${id}/focus`, json("PUT", { x, y })),
+  remove: (kind, id) => request(`/api/${kind}/${id}`, { method: "DELETE" }),
+
+  // -- cards ---------------------------------------------------------------
   listCards: ({ tag = "", q = "" } = {}) => {
     const params = new URLSearchParams();
     if (tag) params.set("tag", tag);
@@ -35,27 +55,21 @@ export const api = {
     const query = params.toString();
     return request(`/api/cards${query ? `?${query}` : ""}`);
   },
-
-  uploadCards: (files, tag = "") => {
-    const form = new FormData();
-    for (const file of files) form.append("files", file, file.name);
-    if (tag) form.append("tag", tag);
-    return request("/api/cards/upload", { method: "POST", body: form });
-  },
-
-  updateCard: (id, fields) => request(`/api/cards/${id}`, json("PUT", fields)),
-  setFocus: (id, x, y) => request(`/api/cards/${id}/focus`, json("PUT", { x, y })),
-  deleteCard: (id) => request(`/api/cards/${id}`, { method: "DELETE" }),
+  uploadCards: (files, tag = "") =>
+    request("/api/cards/upload", {
+      method: "POST",
+      body: uploadForm(files, { tag }),
+    }),
 
   listTags: () => request("/api/tags"),
 
+  // -- backs ---------------------------------------------------------------
   listBacks: () => request("/api/backs"),
-  uploadBacks: (files) => {
-    const form = new FormData();
-    for (const file of files) form.append("files", file, file.name);
-    return request("/api/backs/upload", { method: "POST", body: form });
-  },
-  deleteBack: (id) => request(`/api/backs/${id}`, { method: "DELETE" }),
+  uploadBacks: (files) =>
+    request("/api/backs/upload", { method: "POST", body: uploadForm(files) }),
 
-  exportBatch: (payload) => request("/api/export", json("POST", payload)),
+  // -- export --------------------------------------------------------------
+  // Starts a job and returns straight away; poll exportStatus for progress.
+  startExport: (payload) => request("/api/export", json("POST", payload)),
+  exportStatus: (jobId) => request(`/api/export/status/${jobId}`),
 };

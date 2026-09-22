@@ -19,6 +19,13 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` must actually hide.
+   The browser's own [hidden] { display: none } is an author-overridable UA
+   rule, so any component we style with `display` (.editor, .dialog) stayed on
+   screen after el.hidden = true -- the closed editor lingered as an empty
+   bordered box. One !important here removes the whole class of bug. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   padding: 1.5rem 1.5rem 4rem;
@@ -90,16 +97,97 @@ button:disabled { opacity: 0.45; cursor: default; }
 .toolbar .spacer { flex: 1; }
 .count { color: var(--muted); font-variant-numeric: tabular-nums; }
 
-#status {
-  max-width: 78rem;
-  margin: 0 auto 0.75rem;
-  padding: 0.5rem 0.8rem;
-  border-radius: 7px;
-  background: var(--panel);
-  border-left: 3px solid var(--accent);
+/* -- notifications ------------------------------------------------------ */
+
+/* Pinned to the VIEWPORT, not the page: they stay put while you scroll a long
+   grid, and the container draws nothing of its own, so with no messages the
+   page is completely clear. */
+#toasts {
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(40rem, calc(100vw - 1.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  pointer-events: none;
 }
-#status[data-kind="error"] { border-left-color: var(--danger); color: var(--danger); }
-#status[data-kind="warn"] { border-left-color: #d9a441; }
+#toasts:empty { display: none; }
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.55rem 0.5rem 0.55rem 0.85rem;
+  border-radius: 9px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 6px 22px #00000070;
+}
+
+.toast-body { flex: 1; min-width: 0; }
+
+.toast-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.toast-text { flex: 1; min-width: 6rem; overflow-wrap: anywhere; }
+.toast-percent { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+.toast-detail {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+  overflow-wrap: anywhere;
+}
+
+.toast-action {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.85rem;
+  background: transparent;
+  border-color: currentColor;
+  color: inherit;
+}
+
+.toast-close {
+  padding: 0.1rem 0.4rem;
+  line-height: 1;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+.toast-close:hover { color: var(--ink); border: 0; }
+
+.toast-bar {
+  display: block;
+  height: 3px;
+  margin-top: 0.4rem;
+  border-radius: 2px;
+  background: #ffffff18;
+  overflow: hidden;
+}
+.toast-bar span {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  transition: width 0.18s linear;
+}
+
+.toast-progress { border-left-color: #d9a441; color: #f0c869; }
+.toast-progress .toast-text { color: #f0c869; }
+.toast-success { border-left-color: var(--ok); color: var(--ok); }
+.toast-success .toast-detail { color: var(--muted); }
+.toast-warn { border-left-color: #d9a441; color: #f0c869; }
+.toast-error { border-left-color: var(--danger); color: var(--danger); }
+.toast-info { color: var(--ink); }
 
 main { max-width: 78rem; margin: 0 auto; display: grid; gap: 1.25rem; }
 
@@ -212,6 +300,13 @@ main { max-width: 78rem; margin: 0 auto; display: grid; gap: 1.25rem; }
 #crop-hint[data-free="false"] { color: #d9a441; }
 
 .editor-fields { display: grid; gap: 0.6rem; align-content: start; }
+.editor-title {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
 .editor-fields label { display: grid; gap: 0.2rem; font-size: 0.85rem; color: var(--muted); }
 .editor-fields input, .editor-fields textarea { color: var(--ink); }
 .editor-actions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
@@ -258,8 +353,24 @@ main { max-width: 78rem; margin: 0 auto; display: grid; gap: 1.25rem; }
   padding: 1.25rem 1.5rem;
   width: min(44rem, 100%);
   max-height: 85vh;
-  overflow: auto;
+  /* Vertical only. A horizontal scrollbar here was caused by form controls:
+     an <input> carries an intrinsic minimum width of about twenty characters,
+     and a grid or flex child defaults to min-width:auto, so it refuses to
+     shrink and pushes the panel wider than its own box. The min-width:0 rules
+     below remove the cause; this line makes sure a long unbroken filename
+     cannot bring it back. */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
+
+/* Let every control actually shrink to its container. */
+.dialog-panel input,
+.dialog-panel select,
+.dialog-panel textarea,
+.dialog-panel label,
+.dialog-panel fieldset { min-width: 0; max-width: 100%; }
+
+.dialog-panel, .dialog-panel * { overflow-wrap: anywhere; }
 .dialog-panel label {
   display: grid;
   gap: 0.2rem;

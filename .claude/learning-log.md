@@ -112,3 +112,19 @@ this example from being scanned as a real candidate by `/base:promote`):
 - home: docs/ARCHITECTURE.md#four-side-bleed-is-structurally-impossible-here-and-that-is-fine
 - evidence: advised the author to "render art slightly oversized to restore full bleed". Wrong: `crop_to_fill` is maximal, keeping 100% of the width or 100% of the height, so one axis never has a spare pixel and bleed on it is always zero — at any resolution. Checked across six source shapes (928x1232, 1200x1800, 1000x1300, 2048x2048, 3000x2000, 1500x2400): one spare column is zero in every case. The advice would have cost the author a re-render of their whole deck for no gain.
 - applications: 2026-09-23
+
+## 2026-09-23 — make-hidden-win-once-globally
+- scope: generic
+- status: candidate
+- rule: Put `[hidden] { display: none !important; }` in the stylesheet once, at the top. The browser's own `[hidden]` rule lives in the UA stylesheet, so **any** author rule that sets `display` silently beats it and `el.hidden = true` stops hiding. Do not patch it per component. When a browser check waits for something to disappear, wait on `state="hidden"`, never on a `[hidden]` attribute selector.
+- home: web/app.css (the `[hidden]` rule at the top), docs/ARCHITECTURE.md#hidden-needs-important-once-globally, tests/check_gallery.py (the `state="hidden"` waits)
+- evidence: `.editor { display: grid }` left a closed editor on screen as an empty bordered box; `.dialog` had needed its own `.dialog[hidden] { display: none }` workaround for the same reason, which hid the general problem. Worse, the broken CSS made the test *pass*: `page.wait_for_selector("#editor[hidden]")` defaults to `state="visible"`, and the element really was still visible, so the wait succeeded and the bug shipped. The same wait against the correctly-hidden export dialog then timed out, which is what exposed both.
+- applications: 2026-09-23
+
+## 2026-09-23 — make-a-long-running-request-a-job-with-honest-progress
+- scope: generic
+- status: candidate
+- rule: When an action takes long enough to need a progress indicator, do not hold the request open — start a worker, return an id, and poll. Drive the percentage from a callback the worker fires per unit of real work, never from a timer. Give the worker its own database session; sessions are not thread-safe.
+- home: src/dixitgen/web/api.py (`ExportApi`), src/dixitgen/export/sheet_pdf.py (the `progress` callback), docs/ARCHITECTURE.md#dixitgenweb--web--the-overview, tests/run_tests.py (`export: progress is reported once per card drawn, and reaches the total`)
+- evidence: exporting a deck is one large raster cropped and embedded per card; the synchronous POST gave the browser nothing to show for several seconds. The gate now asserts the progress sequence is `0..total` with one tick per image, so "80%" cannot drift into decoration.
+- applications: 2026-09-23

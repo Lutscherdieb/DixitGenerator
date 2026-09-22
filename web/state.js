@@ -13,6 +13,7 @@ export const state = {
   filter: { tag: "", q: "" },
   selection: [],
   editingId: null,
+  editingKind: null,
   uploadTag: "",
 };
 

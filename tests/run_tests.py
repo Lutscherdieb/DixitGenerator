@@ -512,6 +512,49 @@ def _low_res_warns_not_blocks() -> None:
         )
 
 
+@check("export: progress is reported once per card drawn, and reaches the total")
+def _progress_is_real() -> None:
+    # The overview shows this number, so it has to mean something: one tick per
+    # image actually placed, monotonic, ending exactly at the total.
+    seen = []
+    cards = [CardArt(name="p{}".format(i), image=band_fixture(900, 1350)) for i in range(5)]
+    export_batch(
+        cards,
+        OUT / "progress.pdf",
+        back=band_fixture(900, 1350),
+        flip=Flip.LONG_EDGE,
+        progress=lambda done, total: seen.append((done, total)),
+    )
+    equal(seen[0], (0, 10), "first report is zero of the total")
+    equal(seen[-1], (10, 10), "last report reaches the total")
+    equal([d for d, _ in seen], list(range(11)), "one tick per image, in order")
+    equal({t for _, t in seen}, {10}, "the total never changes mid-run")
+
+
+@check("export: a back's own crop focus reaches the PDF")
+def _back_focus_is_honoured() -> None:
+    # A back is re-framed in the same editor as a card, so its focus has to
+    # travel the same distance -- into the actual raster, not just the shelf.
+    source = band_fixture(1400, 1400)  # square: real horizontal crop freedom
+    rasters = {}
+    for focus in ((0.0, 0.5), (1.0, 0.5)):
+        result = export_batch(
+            [CardArt(name="front", image=band_fixture(1200, 1800))],
+            OUT / "back-focus-{}.pdf".format(focus[0]),
+            back=source,
+            flip=Flip.LONG_EDGE,
+            back_focus=focus,
+        )
+        images = embedded_images(result.paths[0], 1)
+        equal(len(images), 1, "one back raster")
+        rasters[focus] = corner_colour(images[0], "tl")
+
+    # Keeping the source's left third shows red; keeping the right third shows
+    # green, since a square cropped to 2:3 keeps two thirds of the width.
+    colour_near(rasters[(0.0, 0.5)], (255, 0, 0), "back focus 0 keeps the left band")
+    colour_near(rasters[(1.0, 0.5)], (0, 255, 0), "back focus 1 moves the window right")
+
+
 # --------------------------------------------------------------------------
 # 5. the card library
 # --------------------------------------------------------------------------

@@ -105,16 +105,39 @@ server is serving the real `data/cards.db`. `tests/check_gallery.py` uploads,
 edits and **deletes**, so it refuses to run when that is true. A boolean, not a
 path — the guard needs no filesystem detail.
 
+**Cards and backs are the same kind of resource** — an image with a name and a
+crop focus — so the API verbs are generic over a `kind` of `cards` or `backs`,
+and one editor serves both. A back simply has no tags and no notes.
+
+**Export is a background job.** `POST /api/export` validates the selection,
+starts a worker thread and returns `202` with a job id; the client polls
+`/api/export/status/<id>`. A deck of eighty cards is eighty large rasters
+cropped and embedded, and holding the request open for that with nothing to show
+is the wrong shape. The progress number is honest — `export_batch` calls back
+once per image actually placed — rather than an animation timed to finish when
+the request does. The worker opens its **own** session, because a SQLAlchemy
+session is not thread-safe.
+
 The client is plain ES modules, no build step, acyclic by construction:
 
 ```
-  api.js ◀── state.js ◀── grid / editor / upload / backs / exporter ◀── app.js
+  api.js ◀─┐
+  dom.js ◀─┼── toast.js ◀── grid / editor / upload / backs / exporter ◀── app.js
+  state.js ◀┘
 ```
 
 `app.js` is the only module that imports all the others. It sets
 `document.body.dataset.ready` when the first load completes — an explicit
 readiness signal, because `#grid` and `#spec-line` both exist in the static HTML
 and a test that waits for *them* races the fetches.
+
+Notifications (`toast.js`) are pinned to the **viewport**, stack, and each
+carries its own dismiss button; the container draws nothing of its own, so with
+no messages the page is completely clear. A toast can be updated in place, which
+is how one notification goes from `Exporting… 40%` to `Batch exported` with its
+Download and Open links rather than piling up a line per poll. Those two are
+real `<a>` elements, not buttons, so right-click, middle-click and "save as" all
+work without any JavaScript.
 
 Selection is an **ordered list**, not a `Set`: an export batch is a selection in
 the order you made it, the tile badges show that order, and
@@ -319,6 +342,20 @@ browser console and the tail of the server log, and saves a screenshot. The
 client puts every API error into the status bar, so that one line usually *is*
 the answer — without it the first two failures above cost far more than they
 should have.
+
+### `hidden` needs `!important` once, globally
+
+The browser's `[hidden] { display: none }` lives in the UA stylesheet, so any
+author rule that sets `display` beats it. `.editor { display: grid }` therefore
+left a closed editor on screen as an empty bordered box, and `.dialog` needed
+its own `[hidden]` rule to work around the same thing. One global
+`[hidden] { display: none !important }` removes the class of bug rather than
+patching each component.
+
+The corollary for tests: Playwright's `wait_for_selector` defaults to
+`state="visible"`, so waiting for `#panel[hidden]` waits for something that
+cannot happen. Use `state="hidden"` — and note that the *broken* CSS made that
+wait pass, because the element really was still visible.
 
 ### No rounded corners in the PDF
 

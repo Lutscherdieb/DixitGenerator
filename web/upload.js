@@ -6,7 +6,8 @@
 // people stop using a tool.
 
 import { api } from "./api.js";
-import { $, fail, say } from "./dom.js";
+import { $ } from "./dom.js";
+import { fail, say } from "./toast.js";
 import { state } from "./state.js";
 
 const IMAGE = /^image\//;

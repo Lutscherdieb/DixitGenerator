@@ -22,6 +22,8 @@ PASS export: several sheets, with a part-full last one, back only where used
 PASS export: manual mode writes two files with matching page counts
 PASS export: every placed raster resolves at 300 DPI or better
 PASS export: low-resolution art warns but still exports
+PASS export: progress is reported once per card drawn, and reaches the total
+PASS export: a back's own crop focus reaches the PDF
 PASS store: the gate runs against a scratch database, never the library
 PASS store: an upload round-trips byte-identically
 PASS store: derived fields are computed from the bytes, not taken on trust
@@ -38,5 +40,5 @@ PASS export: the cut card shows the preview's crop, identically in every slot
 PASS export: with bleed off, every drawn box is exactly its card box
 PASS export: bleed still works when switched back on
 ========================================================================
-33 passed, 0 failed, 33 total
+35 passed, 0 failed, 35 total
 Geometry matches the spec. Safe to print.

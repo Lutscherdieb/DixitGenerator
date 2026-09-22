@@ -1,4 +1,9 @@
-// The card editor: name, notes, tags, and the crop nudge.
+// The editor: name, notes, tags, and the crop nudge.
+//
+// It serves **both** cards and backs. A back is an image with a name and a
+// crop focus, exactly like a card, so it gets the same re-framing tool; it
+// simply has no tags and no notes. `kind` ("cards" or "backs") is the only
+// difference, and it only picks the API path.
 //
 // The crop window is the card's shape, showing the FULL-resolution original
 // scaled to cover it. Dragging the picture moves the crop, exactly as it will
@@ -13,10 +18,16 @@
 // correct, not a bug, and the UI says so rather than looking broken.
 
 import { api } from "./api.js";
-import { $, clear, el, fail, say } from "./dom.js";
+import { $, clear, el } from "./dom.js";
+import { fail, say } from "./toast.js";
 import { state } from "./state.js";
 
 let dragging = null;
+
+const LABELS = {
+  cards: { noun: "card", deleteWarning: "This removes the image from the library." },
+  backs: { noun: "back", deleteWarning: "This removes the back from the shelf." },
+};
 
 function cardAspect() {
   // From /api/meta -- never a literal in this file.
@@ -61,6 +72,8 @@ function place(win, img, focus) {
   if (read) read.textContent = `${focus.x.toFixed(2)}, ${focus.y.toFixed(2)}`;
 }
 
+const clamp = (value) => Math.min(1, Math.max(0, value));
+
 function startDrag(event, win, img, focus) {
   const box = layout(win, img);
   if (!box || (box.ox <= 0.5 && box.oy <= 0.5)) return;
@@ -87,10 +100,9 @@ function moveDrag(event, win, img, focus) {
   place(win, img, focus);
 }
 
-const clamp = (value) => Math.min(1, Math.max(0, value));
-
 export function closeEditor() {
   state.editingId = null;
+  state.editingKind = null;
   const panel = $("#editor");
   if (panel) {
     panel.hidden = true;
@@ -98,16 +110,18 @@ export function closeEditor() {
   }
 }
 
-export function openEditor(card, { onSaved, onDeleted }) {
+export function openEditor(item, { kind = "cards", onSaved, onDeleted } = {}) {
   const panel = $("#editor");
   if (!panel) return;
-  state.editingId = card.id;
-  const focus = { x: card.focus.x, y: card.focus.y };
+  const words = LABELS[kind] || LABELS.cards;
+  state.editingId = item.id;
+  state.editingKind = kind;
+  const focus = { x: item.focus.x, y: item.focus.y };
 
   const img = el("img", {
     id: "crop-img",
-    src: card.image_url,
-    alt: card.name || "",
+    src: item.image_url,
+    alt: item.name || "",
     draggable: "false",
   });
   const win = el(
@@ -127,52 +141,62 @@ export function openEditor(card, { onSaved, onDeleted }) {
     img
   );
 
-  const nameInput = el("input", { id: "edit-name", type: "text", value: card.name || "" });
-  const notesInput = el("textarea", { id: "edit-notes", rows: "3" }, card.notes || "");
-  const tagsInput = el("input", {
-    id: "edit-tags",
+  const nameInput = el("input", {
+    id: "edit-name",
     type: "text",
-    value: (card.tags || []).join(", "),
-    placeholder: "comma separated",
+    value: item.name || "",
   });
+  const notesInput =
+    kind === "cards"
+      ? el("textarea", { id: "edit-notes", rows: "3" }, item.notes || "")
+      : null;
+  const tagsInput =
+    kind === "cards"
+      ? el("input", {
+          id: "edit-tags",
+          type: "text",
+          value: (item.tags || []).join(", "),
+          placeholder: "comma separated",
+        })
+      : null;
 
   const save = async () => {
     try {
-      await api.updateCard(card.id, {
-        name: nameInput.value,
-        notes: notesInput.value,
-        tags: tagsInput.value
+      const fields = { name: nameInput.value };
+      if (kind === "cards") {
+        fields.notes = notesInput.value;
+        fields.tags = tagsInput.value
           .split(",")
           .map((t) => t.trim())
-          .filter(Boolean),
-      });
-      if (focus.x !== card.focus.x || focus.y !== card.focus.y) {
-        await api.setFocus(card.id, focus.x, focus.y);
+          .filter(Boolean);
       }
-      say(`Saved “${nameInput.value || card.id}”.`);
+      await api.update(kind, item.id, fields);
+      if (focus.x !== item.focus.x || focus.y !== item.focus.y) {
+        await api.setFocus(kind, item.id, focus.x, focus.y);
+      }
+      say(`Saved “${nameInput.value || item.id}”.`);
       closeEditor();
-      await onSaved();
+      if (onSaved) await onSaved();
     } catch (error) {
       fail(error);
     }
   };
 
   const remove = async () => {
-    const label = card.name || `card ${card.id}`;
+    const label = item.name || `${words.noun} ${item.id}`;
     if (
       !window.confirm(
-        `Delete “${label}” permanently?\n\n` +
-          "This removes the image from the library. There is no undo, and the " +
-          "database holds the only copy."
+        `Delete “${label}” permanently?\n\n${words.deleteWarning} There is no ` +
+          "undo, and the database holds the only copy."
       )
     ) {
       return;
     }
     try {
-      await api.deleteCard(card.id);
+      await api.remove(kind, item.id);
       say(`Deleted “${label}”.`);
       closeEditor();
-      await onDeleted();
+      if (onDeleted) await onDeleted();
     } catch (error) {
       fail(error);
     }
@@ -192,8 +216,8 @@ export function openEditor(card, { onSaved, onDeleted }) {
         "focus ",
         el("code", { id: "crop-readout" }, "0.50, 0.50"),
         " · source ",
-        `${card.src_w}×${card.src_h}`,
-        card.soft ? " · will print soft" : ""
+        `${item.src_w}×${item.src_h}`,
+        item.soft ? " · will print soft" : ""
       ),
       el(
         "button",
@@ -212,15 +236,24 @@ export function openEditor(card, { onSaved, onDeleted }) {
     el(
       "div",
       { class: "editor-fields" },
+      el("h3", { class: "editor-title" }, `Editing ${words.noun}`),
       el("label", {}, "Name", nameInput),
-      el("label", {}, "Tags", tagsInput),
-      el("label", {}, "Notes", notesInput),
+      tagsInput ? el("label", {}, "Tags", tagsInput) : null,
+      notesInput ? el("label", {}, "Notes", notesInput) : null,
       el(
         "div",
         { class: "editor-actions" },
-        el("button", { type: "button", class: "primary", id: "edit-save", onclick: save }, "Save"),
+        el(
+          "button",
+          { type: "button", class: "primary", id: "edit-save", onclick: save },
+          "Save"
+        ),
         el("button", { type: "button", class: "ghost", onclick: closeEditor }, "Cancel"),
-        el("button", { type: "button", class: "danger", id: "edit-delete", onclick: remove }, "Delete")
+        el(
+          "button",
+          { type: "button", class: "danger", id: "edit-delete", onclick: remove },
+          "Delete"
+        )
       )
     )
   );

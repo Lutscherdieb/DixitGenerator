@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 from PIL import Image
 from reportlab.lib.utils import ImageReader
@@ -65,7 +65,10 @@ def _chunk(items: Sequence[CardArt], size: int) -> List[Sequence[CardArt]]:
 
 
 def _draw_front_page(
-    pdf: canvas.Canvas, layout: SheetLayout, page_cards: Sequence[CardArt]
+    pdf: canvas.Canvas,
+    layout: SheetLayout,
+    page_cards: Sequence[CardArt],
+    tick: Optional[Callable[[], None]] = None,
 ) -> List[str]:
     """Draw each card's art so its **trim** region is the preview's crop.
 
@@ -97,6 +100,8 @@ def _draw_front_page(
         )
         x_pt, y_pt, w_pt, h_pt = box.as_pt()
         pdf.drawImage(ImageReader(crop.image), x_pt, y_pt, width=w_pt, height=h_pt)
+        if tick:
+            tick()
     _draw_crop_marks(pdf, layout)
     return warnings
 
@@ -108,6 +113,8 @@ def _draw_back_page(
     back: Image.Image,
     flip: Flip,
     offset_mm: Tuple[float, float],
+    back_focus: Tuple[float, float] = (0.5, 0.5),
+    tick: Optional[Callable[[], None]] = None,
 ) -> None:
     """Draw the chosen back into the slot behind each *used* front slot.
 
@@ -127,7 +134,7 @@ def _draw_back_page(
             back,
             layout.card.trim_w_mm,
             layout.card.trim_h_mm,
-            (0.5, 0.5),
+            back_focus,
             rotate_sides(wanted) if rotation else wanted,
         )
         art = crop.image.rotate(rotation, expand=True) if rotation else crop.image
@@ -142,6 +149,8 @@ def _draw_back_page(
             width=w_pt,
             height=h_pt,
         )
+        if tick:
+            tick()
     _draw_crop_marks(pdf, layout, offset_mm)
 
 
@@ -163,12 +172,19 @@ def export_batch(
     layout: Optional[SheetLayout] = None,
     flip: Flip = Flip.LONG_EDGE,
     offset_mm: Tuple[float, float] = (0.0, 0.0),
+    back_focus: Tuple[float, float] = (0.5, 0.5),
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> ExportResult:
     """Lay ``cards`` out on sheets and write the PDF(s).
 
     ``offset_mm`` is this machine's measured duplex drift, applied to back
     pages only -- see ``tools/calibration_sheet.py``.  It belongs in gitignored
     ``printer.local.json``, never in the repo.
+
+    ``progress`` is called as ``progress(done, total)`` after every image
+    placed, so a caller can report real progress rather than an animation.  The
+    unit is one drawn card, front or back -- the honest measure, since that is
+    where the time goes on a deck of eighty.
 
     Raises ``GeometryError`` before writing anything if the layout would not
     register or if furniture would land on a card.
@@ -186,6 +202,17 @@ def export_batch(
 
     pages = _chunk(list(cards), layout.cards_per_sheet)
     slots = list(layout.slots())
+
+    total = len(cards) * (2 if back is not None else 1)
+    state = {"done": 0}
+
+    def tick() -> None:
+        state["done"] += 1
+        if progress:
+            progress(state["done"], total)
+
+    if progress:
+        progress(0, total)
     page_size = (layout.paper.w_pt, layout.paper.h_pt)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -197,7 +224,7 @@ def export_batch(
 
         front_pdf = canvas.Canvas(str(fronts), pagesize=page_size)
         for page_cards in pages:
-            warnings.extend(_draw_front_page(front_pdf, layout, page_cards))
+            warnings.extend(_draw_front_page(front_pdf, layout, page_cards, tick))
             front_pdf.showPage()
         front_pdf.save()
 
@@ -206,7 +233,8 @@ def export_batch(
             back_pdf = canvas.Canvas(str(backs), pagesize=page_size)
             for page_cards in pages:
                 _draw_back_page(
-                    back_pdf, layout, slots[: len(page_cards)], back, flip, offset_mm
+                    back_pdf, layout, slots[: len(page_cards)], back, flip,
+                    offset_mm, back_focus, tick,
                 )
                 back_pdf.showPage()
             back_pdf.save()
@@ -214,11 +242,12 @@ def export_batch(
     else:
         pdf = canvas.Canvas(str(out_path), pagesize=page_size)
         for page_cards in pages:
-            warnings.extend(_draw_front_page(pdf, layout, page_cards))
+            warnings.extend(_draw_front_page(pdf, layout, page_cards, tick))
             pdf.showPage()
             if back is not None:
                 _draw_back_page(
-                    pdf, layout, slots[: len(page_cards)], back, flip, offset_mm
+                    pdf, layout, slots[: len(page_cards)], back, flip, offset_mm,
+                    back_focus, tick,
                 )
                 pdf.showPage()
         pdf.save()

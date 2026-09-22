@@ -247,7 +247,7 @@ def run_checks(page, base: str, fixtures: List[Path]) -> None:
 
     page.fill("#edit-name", "renamed by the check")
     page.click("#edit-save")
-    page.wait_for_selector("#editor[hidden]")
+    page.wait_for_selector("#editor", state="hidden")
     page.wait_for_function(
         "[...document.querySelectorAll('.tile-name')]"
         ".some(n => n.textContent.includes('renamed by the check'))",
@@ -276,10 +276,52 @@ def run_checks(page, base: str, fixtures: List[Path]) -> None:
     equal(len(page.query_selector_all(".tile")), len(cards), "a back must not join the card grid")
     record("backs: a back lands on its own shelf, never in the card grid", True)
 
+    # A back is an image with a name and a crop, so it gets the same editor.
+    page.hover(".back-tile")
+    page.click(".back-tile .tile-edit")
+    page.wait_for_selector("#crop-window")
+    if page.query_selector("#edit-tags") is not None:
+        raise AssertionError("a back has no tags, but the editor offered the field")
+    page.wait_for_function(
+        "document.querySelector('#crop-hint') && "
+        "document.querySelector('#crop-hint').dataset.free === 'true'",
+        timeout=10000,
+    )
+    box = page.query_selector("#crop-window").bounding_box()
+    before = page.inner_text("#crop-readout")
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] / 2 + 100, box["y"] + box["height"] / 2, steps=10)
+    page.mouse.up()
+    if page.inner_text("#crop-readout") == before:
+        raise AssertionError("dragging a back's crop did not move its focus")
+    page.fill("#edit-name", "renamed back")
+    page.click("#edit-save")
+    page.wait_for_selector("#editor", state="hidden")
+    stored = get_json(base + "/api/backs")["backs"][0]
+    equal(stored["name"], "renamed back", "back name after editing")
+    if stored["focus"]["x"] == 0.5:
+        raise AssertionError("the dragged focus was not saved on the back")
+    record("backs: renaming and re-cropping a back works like a card", True)
+
     # -- export ------------------------------------------------------------
     page.click("#select-all")
     page.click("#export-open")
     page.wait_for_selector("#export-dialog:not([hidden])")
+
+    # The dialog must not scroll sideways. A form control's intrinsic minimum
+    # width used to push the panel wider than its own box.
+    overflow = page.evaluate(
+        "() => { const p = document.querySelector('.dialog-panel');"
+        " return {scroll: p.scrollWidth, client: p.clientWidth}; }"
+    )
+    if overflow["scroll"] > overflow["client"] + 1:
+        raise AssertionError(
+            "the export dialog scrolls horizontally: content {}px in a {}px "
+            "panel".format(overflow["scroll"], overflow["client"])
+        )
+    record("export: the dialog has no horizontal scrollbar", True)
+
     summary = page.inner_text(".export-summary")
     per_sheet = meta["sheet"]["cards_per_sheet"]
     expected_sheets = -(-len(cards) // per_sheet)
@@ -291,17 +333,42 @@ def run_checks(page, base: str, fixtures: List[Path]) -> None:
     page.select_option("#export-back", index=1)
     page.fill("#export-name", "gallery-check")
     page.click("#export-run")
-    page.wait_for_selector("#export-result .ok", timeout=30000)
-    link = page.query_selector("#export-result .files a")
-    if link is None:
-        raise AssertionError("the export reported success but offered no file")
-    href = link.get_attribute("href")
+
+    # The dialog goes at once; the notification carries the job from here.
+    page.wait_for_selector("#export-dialog", state="hidden", timeout=5000)
+    record("export: the dialog closes as soon as the job starts", True)
+
+    page.wait_for_selector(".toast", timeout=5000)
+    page.wait_for_selector(".toast-success", timeout=60000)
+    toast = page.query_selector(".toast-success")
+    text = toast.inner_text()
+    if "Batch exported" not in text:
+        raise AssertionError("the finished notification reads {!r}".format(text))
+    record("export: progress notification becomes 'Batch exported'", True)
+
+    links = toast.query_selector_all(".toast-action")
+    labels = [node.inner_text().strip() for node in links]
+    if labels != ["Download", "Open"]:
+        raise AssertionError(
+            "expected Download and Open on one line, got {}".format(labels)
+        )
+    href = links[1].get_attribute("href")
     with urllib.request.urlopen(base + href, timeout=15) as response:
         head = response.read(5)
-    equal(head, b"%PDF-", "the download really is a PDF")
-    record("export: the dialog writes a PDF and serves it back", True)
+    equal(head, b"%PDF-", "the Open link really serves a PDF")
+    download_href = links[0].get_attribute("href")
+    if "download" not in download_href:
+        raise AssertionError(
+            "the Download link should ask for an attachment: {}".format(download_href)
+        )
+    record("export: Download and Open sit on one line and both resolve", True)
 
-    page.click("#export-close")
+    # Every notification can be dismissed, and the layer leaves nothing behind.
+    for _ in range(len(page.query_selector_all(".toast"))):
+        page.click(".toast .toast-close")
+        page.wait_for_timeout(60)
+    equal(len(page.query_selector_all(".toast")), 0, "notifications after dismissing")
+    record("notifications: each can be closed with its own X", True)
 
     # -- delete ------------------------------------------------------------
     page.once("dialog", lambda dialog: dialog.accept())
@@ -326,10 +393,15 @@ def _diagnose(page, console: List[str]) -> None:
     """
     print("-" * 72)
     try:
-        status = page.inner_text("#status")
-        print("page status bar : {!r}".format(status))
+        toasts = page.query_selector_all(".toast")
+        if toasts:
+            print("notifications   :")
+            for node in toasts:
+                print("    {!r}".format(" | ".join(node.inner_text().split("\n"))))
+        else:
+            print("notifications   : (none)")
     except Exception:  # noqa: BLE001
-        print("page status bar : unreadable")
+        print("notifications   : unreadable")
     try:
         print("tiles on page   : {}".format(len(page.query_selector_all(".tile"))))
         print("grid says       : {!r}".format(page.inner_text("#grid")[:200]))

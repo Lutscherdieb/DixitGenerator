@@ -7,7 +7,8 @@
 // fails the build if a literal appears here.
 
 import { api } from "./api.js";
-import { $, el, fail, say } from "./dom.js";
+import { $, el } from "./dom.js";
+import { fail } from "./toast.js";
 import { renderBacks, wireBackUpload } from "./backs.js";
 import { closeEditor, openEditor } from "./editor.js";
 import { closeExport, openExport, runExport } from "./exporter.js";
@@ -69,8 +70,12 @@ function renderSpecLine() {
 
 function renderAll() {
   renderToolbar();
-  renderGrid((card) => openEditor(card, { onSaved: reload, onDeleted: reload }));
-  renderBacks(reload);
+  renderGrid((card) =>
+    openEditor(card, { kind: "cards", onSaved: reload, onDeleted: reload })
+  );
+  renderBacks(reload, (back) =>
+    openEditor(back, { kind: "backs", onSaved: reload, onDeleted: reload })
+  );
 }
 
 function wireToolbar() {
@@ -129,7 +134,6 @@ async function main() {
     state.meta = await api.meta();
     renderSpecLine();
     await reload();
-    say("");
     // An explicit readiness flag, for tests and for anyone watching the page
     // wake up. Waiting on an element instead proves nothing: #spec-line and
     // #grid both exist in the static HTML before a single byte of data has

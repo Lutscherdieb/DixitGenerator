@@ -21,11 +21,13 @@ from .repo import (
     normalise_tag,
     prune_unused_tags,
     replace_image,
+    set_back_focus,
     set_focus,
     set_tags,
     to_back_image,
     to_card_art,
     all_tags,
+    update_back,
     update_card,
 )
 
@@ -47,7 +49,9 @@ __all__ = [
     "list_cards",
     "list_backs",
     "update_card",
+    "update_back",
     "set_focus",
+    "set_back_focus",
     "set_tags",
     "all_tags",
     "prune_unused_tags",

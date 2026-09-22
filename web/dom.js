@@ -24,18 +24,3 @@ export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
   return node;
 }
-
-/** A short status line the whole app writes to. */
-export function say(message, kind = "info") {
-  const bar = $("#status");
-  if (!bar) return;
-  bar.textContent = message;
-  bar.dataset.kind = kind;
-  bar.hidden = !message;
-}
-
-export function fail(error) {
-  say(error && error.message ? error.message : String(error), "error");
-  // Keep the real stack for the console; the bar shows the human part.
-  if (error instanceof Error) console.error(error);
-}

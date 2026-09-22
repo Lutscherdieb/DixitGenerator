@@ -5,10 +5,11 @@
 // fronts. The store enforces the same separation with its own table.
 
 import { api } from "./api.js";
-import { $, clear, el, fail, say } from "./dom.js";
+import { $, clear, el } from "./dom.js";
+import { fail, say } from "./toast.js";
 import { state } from "./state.js";
 
-export function renderBacks(reload) {
+export function renderBacks(reload, onEdit) {
   const shelf = $("#backs");
   if (!shelf) return;
   clear(shelf);
@@ -32,20 +33,22 @@ export function renderBacks(reload) {
           {
             type: "button",
             class: "tile-edit",
-            title: "Delete this back",
-            onclick: async () => {
-              if (!window.confirm(`Delete the back “${back.name || back.id}”? There is no undo.`)) return;
-              try {
-                await api.deleteBack(back.id);
-                say("Back deleted.");
-                await reload();
-              } catch (error) {
-                fail(error);
-              }
-            },
+            title: "Rename this back and adjust its crop",
+            "aria-label": `edit ${back.name || back.id}`,
+            onclick: () => onEdit(back),
           },
-          "✕"
-        )
+          "✎"
+        ),
+        back.soft
+          ? el(
+              "span",
+              {
+                class: "tile-soft",
+                title: `${back.src_w}x${back.src_h} is below the resolution this prints at`,
+              },
+              "soft"
+            )
+          : null
       )
     );
   }

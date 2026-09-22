@@ -1,25 +1,35 @@
-// The export dialog.
+// The export dialog, and the notification that replaces it.
+//
+// Pressing "Write the PDF" closes the dialog straight away and hands the job
+// to a notification: "Exporting… 40%" while the server works, then "Batch
+// exported" with Download and Open on the same line. The progress is real —
+// the server counts each card drawn — so it tells you something a spinner
+// cannot.
 //
 // Everything it shows about sheets and cards-per-sheet comes from /api/meta,
-// so the count it predicts is the count the server will produce.
+// so the count it predicts is the count the server produces.
 //
 // The calibration offset lives here because it is the thing you re-enter after
-// holding a test print up to the light -- see docs/PRINTING.md. It is not
-// persisted by the browser on purpose: it belongs to a printer and a paper
-// path, not to a browser profile, and docs/PRINTING.md puts it in the
-// gitignored printer.local.json.
+// holding a test print up to the light — see docs/PRINTING.md. It is
+// deliberately not remembered by the browser: it belongs to a printer and a
+// paper path, not to a browser profile.
 
 import { api } from "./api.js";
-import { $, clear, el, fail, say } from "./dom.js";
+import { $, clear, el } from "./dom.js";
+import { dismiss, fail, notify, update } from "./toast.js";
 import { selectedCards, state } from "./state.js";
 
+//: How often to ask the server how far it has got. Fast enough to feel live,
+//: slow enough not to flood a local server during a long batch.
+const POLL_MS = 250;
+
 function sheetsFor(count) {
-  const perSheet = state.meta && state.meta.sheet ? state.meta.sheet.cards_per_sheet : 0;
+  const perSheet = state.meta?.sheet?.cards_per_sheet || 0;
   return perSheet ? Math.ceil(count / perSheet) : 0;
 }
 
 function flipOptions(selectedId) {
-  const flips = (state.meta && state.meta.flips) || [];
+  const flips = state.meta?.flips || [];
   const label = {
     "long-edge": "Auto duplex — flip on long edge (usual default)",
     "short-edge": "Auto duplex — flip on short edge (back turned 180°)",
@@ -47,7 +57,7 @@ export function openExport() {
 
   const cards = selectedCards();
   if (!cards.length) {
-    say("Select some cards first.", "warn");
+    notify("Select some cards first.", { kind: "warn" });
     return;
   }
 
@@ -107,8 +117,7 @@ export function openExport() {
       ),
       el("label", {}, "x", offsetX),
       el("label", {}, "y", offsetY)
-    ),
-    el("div", { id: "export-result" })
+    )
   );
 
   dialog.hidden = false;
@@ -122,15 +131,46 @@ export function closeExport() {
   delete dialog.dataset.open;
 }
 
-export async function runExport() {
-  const button = $("#export-run");
-  const result = $("#export-result");
-  const checked = document.querySelector('input[name="flip"]:checked');
-  const backValue = $("#export-back").value;
+function finish(toastId, status) {
+  const files = status.files || [];
+  const primary = files[0];
+  const actions = [];
+  if (primary) {
+    actions.push({
+      label: "Download",
+      href: primary.download_url || primary.url,
+      download: primary.name,
+    });
+    actions.push({ label: "Open", href: primary.url, newTab: true });
+  }
 
+  const extras = files.length > 1 ? ` · ${files.length} files` : "";
+  const warned = (status.warnings || []).length;
+  update(toastId, {
+    kind: "success",
+    text: "Batch exported",
+    percent: undefined,
+    detail:
+      `${status.sheets} sheet${status.sheets === 1 ? "" : "s"}, ` +
+      `${status.cards} card${status.cards === 1 ? "" : "s"} (${status.flip})` +
+      `${extras} · in out/` +
+      (warned ? ` · ${warned} resolution warning${warned === 1 ? "" : "s"}` : ""),
+    actions,
+  });
+
+  if (warned) {
+    notify(`${warned} card${warned === 1 ? "" : "s"} will print soft`, {
+      kind: "warn",
+      detail: status.warnings.join(" · "),
+    });
+  }
+}
+
+export async function runExport() {
+  const checked = document.querySelector('input[name="flip"]:checked');
   const payload = {
     card_ids: state.selection,
-    back_id: backValue ? Number(backValue) : null,
+    back_id: $("#export-back").value ? Number($("#export-back").value) : null,
     flip: checked ? checked.value : "long-edge",
     name: $("#export-name").value || "batch",
     offset_mm: {
@@ -139,49 +179,46 @@ export async function runExport() {
     },
   };
 
-  button.disabled = true;
-  say("Writing the PDF…");
+  // Out of the way immediately: the work happens on the server and the
+  // notification carries it from here.
+  closeExport();
+  const toastId = notify("Exporting…", { kind: "progress", percent: 0 });
+
+  let job;
   try {
-    const response = await api.exportBatch(payload);
-    clear(result);
-    result.append(
-      el(
-        "p",
-        { class: "ok" },
-        `Wrote ${response.sheets} sheet${response.sheets === 1 ? "" : "s"} for ${
-          response.cards
-        } card${response.cards === 1 ? "" : "s"} (${response.flip}).`
-      ),
-      el(
-        "ul",
-        { class: "files" },
-        ...response.files.map((file) =>
-          el(
-            "li",
-            {},
-            el("a", { href: file.url, download: file.name }, file.name),
-            ` — ${(file.size / 1024).toFixed(0)} KB, in out/`
-          )
-        )
-      ),
-      response.warnings.length
-        ? el(
-            "details",
-            { class: "warn-box" },
-            el("summary", {}, `${response.warnings.length} resolution warning(s)`),
-            el("ul", {}, ...response.warnings.map((w) => el("li", {}, w)))
-          )
-        : null,
-      el(
-        "p",
-        { class: "note" },
-        "Print at 100% / “Actual size”, and match your printer's duplex setting to the mode above. docs/PRINTING.md has the rest."
-      )
-    );
-    say("Export written.");
+    job = await api.startExport(payload);
   } catch (error) {
+    dismiss(toastId);
     fail(error);
-  } finally {
-    button.disabled = false;
+    return;
   }
+
+  const poll = async () => {
+    let status;
+    try {
+      status = await api.exportStatus(job.job_id);
+    } catch (error) {
+      dismiss(toastId);
+      fail(error);
+      return;
+    }
+
+    if (status.state === "running") {
+      update(toastId, {
+        text: "Exporting…",
+        percent: status.percent || 0,
+        detail: `${status.done} of ${status.total} cards drawn`,
+      });
+      setTimeout(poll, POLL_MS);
+      return;
+    }
+    if (status.state === "error") {
+      dismiss(toastId);
+      fail(new Error(status.error || "the export failed"));
+      return;
+    }
+    finish(toastId, status);
+  };
+
+  setTimeout(poll, POLL_MS);
 }

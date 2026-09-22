@@ -309,6 +309,32 @@ def list_backs(session: Session) -> List[Back]:
     )
 
 
+def update_back(session: Session, back_id: int, name: Optional[str] = None) -> Back:
+    back = get_back(session, back_id)
+    if name is not None:
+        back.name = name.strip()
+    session.flush()
+    return back
+
+
+def set_back_focus(
+    session: Session, back_id: int, focus: Tuple[float, float]
+) -> Back:
+    """Move a back's crop window, regenerating its tile.
+
+    The same rule as ``set_focus`` for cards, and for the same reason: a focus
+    changed without a new thumbnail leaves the shelf showing a crop the PDF
+    will not produce.
+    """
+    back = get_back(session, back_id)
+    back.focus_x, back.focus_y = _clamp_focus(focus)
+    with Image.open(io.BytesIO(back.image)) as img:
+        img.load()
+        back.thumb = make_thumb(img, back.focus)
+    session.flush()
+    return back
+
+
 def delete_back(session: Session, back_id: int) -> None:
     session.delete(get_back(session, back_id))
     session.flush()
@@ -335,6 +361,7 @@ def to_card_art(card: Card) -> CardArt:
 
 
 def to_back_image(back: Back) -> Image.Image:
+    """The back's bytes as an image.  Its own focus is honoured at export time."""
     img = Image.open(io.BytesIO(back.image))
     img.load()
     return img
