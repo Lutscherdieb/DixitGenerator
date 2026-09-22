@@ -4,11 +4,20 @@ Turn uploaded artwork into print-ready A4 duplex PDF sheets of 80 x 120 mm Dixit
 
 ## Status
 
-**Scaffolded, with the print geometry built and proven.**
+**Print geometry and the card library are built and proven.**
 
-The measurement layer (`dixitgen.spec`), the crop, the PDF export and the verify gate are done: `python tests/run_tests.py` exports fixture batches in all three duplex modes, parses the PDFs back off disk and checks every placement — 18 checks, all passing.
+`python tests/run_tests.py` runs **30 checks, all passing**: it exports fixture
+batches in all three duplex modes and parses the PDFs back off disk to measure
+them, and it exercises the library end to end — upload, crop focus, tags,
+delete, and the path from stored bytes to the raster embedded in the PDF.
 
-Not started yet, in the order they are wanted: the SQLite store (images, backs, names, tags, notes, crop focus), the upload/list API, the browser overview you batch-select from, and `tools/calibration_sheet.py`. The export is already written, so the overview's job is to hand it a selection.
+Done: the measurement layer (`dixitgen.spec`), crop-to-fill, thumbnails, the
+SQLite library (`dixitgen.store`), the PDF export, and the verify gate.
+
+Not started, in the order they are wanted: the upload/list/tag API beyond
+`/api/meta`, the browser overview you batch-select from, and
+`tools/calibration_sheet.py`. The export and the library are both finished, so
+the overview's job is to let you pick rows and hand them to `export_batch`.
 
 ## What this is
 
@@ -37,7 +46,8 @@ Verify a change with: `python tests/run_tests.py > tests/last-run.txt 2>&1`
 | Path | What it is |
 |---|---|
 | [`src/dixitgen/spec/`](src/dixitgen/spec/) | **The only source of print measurements.** Units, card format, sheet layout, and the geometry assertions everything else is held to |
-| [`src/dixitgen/render/`](src/dixitgen/render/) | Crop-to-fill: how an upload of any shape becomes a card-shaped image |
+| [`src/dixitgen/render/`](src/dixitgen/render/) | Crop-to-fill and grid thumbnails: how an upload of any shape becomes a card-shaped image |
+| [`src/dixitgen/store/`](src/dixitgen/store/) | The card library. **`data/cards.db` holds the image bytes, so it is the whole library — and the file to back up** |
 | [`src/dixitgen/export/`](src/dixitgen/export/) | Batch → PDF. The only writer of print output |
 | [`src/dixitgen/web/`](src/dixitgen/web/) | The local JSON API (CherryPy). `/api/meta` serves the spec to the browser |
 | [`src/dixitgen/cli.py`](src/dixitgen/cli.py) | `dixitgen serve` — what `serve.bat` calls |

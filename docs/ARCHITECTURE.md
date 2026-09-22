@@ -56,6 +56,34 @@ The crop does **not** resample to a pixel size. The PDF places the image at a
 size in millimetres and the raster goes in at whatever resolution it has, which
 is what keeps a high-resolution source high-resolution.
 
+### `dixitgen.store` — the card library
+
+One SQLite file, `data/cards.db`, holding the **image bytes themselves**. Copy
+that file and you have copied the library.
+
+| Table | Holds |
+|---|---|
+| `cards` | name, notes, the upload's bytes, its source size, the crop focus, a thumbnail, a content hash |
+| `backs` | the same image columns (via `ImageMixin`), plus a name |
+| `tags` + `card_tags` | free labels, normalised, many-to-many |
+
+`repo.py` is the only door. It exists to hold two invariants that a bare model
+cannot:
+
+- **Derived fields have exactly one writer.** `_apply_image` computes
+  `src_w`/`src_h`, the MIME type, the thumbnail and the SHA-256 from the bytes
+  on the way in. `set_focus` is a function rather than a field assignment
+  *because* it must regenerate the thumbnail — a focus changed without a new
+  tile leaves the grid showing a crop the PDF will not produce.
+- **Tags are normalised at one chokepoint.** `normalise_tag` trims, collapses
+  inner whitespace and lowercases, so `"Deck 1"`, `" deck  1 "` and `"DECK 1"`
+  are one tag. Without it, "select everything in deck 1" silently returns half
+  the deck.
+
+`batch_for_export` is the bridge: it returns `CardArt` objects in **the
+caller's order**, because a batch is a selection in the order you made it, not
+in database order.
+
 ### `dixitgen.export` — batch to PDF
 
 `export_batch` chunks the selection into sheets, draws each front page, and —
@@ -140,6 +168,46 @@ with four identical backs holds a **single** raster. Any check that pairs a
 placement with its pixels must look the XObject up by the name the placement
 carries; counting `page.images` against placements fails on exactly the page that
 matters most.
+
+### Image bytes live in the row, never a path
+
+The sibling project `CardGenerator` learned this expensively: artwork addressed
+by a path had two writers — an editable form field and the upload handler — and
+pressing save after an upload restored the old path, silently discarding the
+image just uploaded. Bytes have exactly one writer. The cost is a larger
+database file; the benefit is that the file *is* the library.
+
+The uploaded bytes are also never re-encoded. The crop happens at export time
+from the original, so re-nudging a focus a hundred times costs nothing in
+quality, and the gate asserts the library's pixels reach the PDF unresampled.
+
+### Backs are their own table, not a flag on `cards`
+
+A back has no tags and no notes, and must never appear in the overview you
+batch-select from. A `kind` column would make that a filter every query has to
+remember; a separate table makes it structural. The shared image columns come
+from `ImageMixin`, so a column added to one is added to both.
+
+### Hard delete — so `data/cards.db` is the file to back up
+
+Deleting a card is permanent (the author's decision, 2026-09-22): the row and
+its bytes go, and the database holds the only copy of the image. The
+confirmation lives in the UI. Soft delete was offered and declined; recorded
+here so the trade-off is visible rather than rediscovered.
+
+### A thumbnail shows the print crop, not the source
+
+Tiles are cropped to the card's aspect at the card's focus, so what you pick in
+the grid is what the guillotine gives you. That makes the thumbnail a function
+of the focus, which is why `set_focus` regenerates it.
+
+### Dispose a connection pool before deleting its file
+
+On Windows, SQLAlchemy's pooled SQLite connections keep the database file open,
+and an open handle makes the file undeletable. The gate's `scratch_engine()`
+calls `dispose()` before `unlink()`; without it every check after the first
+died with `PermissionError: [WinError 32] The process cannot access the file
+because it is being used by another process`.
 
 ### No rounded corners in the PDF
 

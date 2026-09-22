@@ -22,6 +22,8 @@ Exit code 0 means every check passed.  Anything else means do not print.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import sys
 import traceback
 from pathlib import Path
@@ -33,6 +35,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from PIL import Image  # noqa: E402
 
+from dixitgen import store  # noqa: E402
 from dixitgen.export.sheet_pdf import CardArt, export_batch  # noqa: E402
 from dixitgen.spec import (  # noqa: E402
     A4,
@@ -121,6 +124,22 @@ def quadrant_fixture(w: int, h: int) -> Image.Image:
         ((half_w, half_h, w, h), (255, 255, 0)),
     ):
         img.paste(colour, box)
+    return img
+
+
+def band_fixture(w: int, h: int) -> Image.Image:
+    """Three equal vertical bands: red, green, blue, left to right.
+
+    For checking a horizontal crop.  The quadrant fixture is wrong for that
+    job: cropping a square to 2:3 keeps two thirds of the width, so a corner
+    sampled at 1/4 and 3/4 of the crop lands exactly on the quadrant seam and
+    reads as a red/green blend.  Bands at thirds put every sample point well
+    inside one colour.
+    """
+    img = Image.new("RGB", (w, h), (0, 0, 0))
+    third = w // 3
+    for i, colour in enumerate(((255, 0, 0), (0, 255, 0), (0, 0, 255))):
+        img.paste(colour, (i * third, 0, (i + 1) * third if i < 2 else w, h))
     return img
 
 
@@ -506,6 +525,283 @@ def _low_res_warns_not_blocks() -> None:
                 result.warnings[0]
             )
         )
+
+
+# --------------------------------------------------------------------------
+# 5. the card library
+# --------------------------------------------------------------------------
+
+SCRATCH_DB = OUT / "scratch-library.db"
+
+
+def png_bytes(img: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+_LAST_ENGINE = []
+
+
+def scratch_engine():
+    """A throwaway database, fresh for each check.
+
+    The gate must never touch the author's library: these checks add, mutate
+    and delete rows, and `data/cards.db` holds the only copy of every image.
+
+    ``dispose()`` before ``unlink()`` is not optional on Windows. SQLAlchemy
+    keeps pooled SQLite connections open, and an open handle makes the file
+    undeletable -- every check after the first died with
+    ``PermissionError: [WinError 32] The process cannot access the file
+    because it is being used by another process``.
+    """
+    OUT.mkdir(parents=True, exist_ok=True)
+    while _LAST_ENGINE:
+        _LAST_ENGINE.pop().dispose()
+    if SCRATCH_DB.exists():
+        SCRATCH_DB.unlink()
+    engine = store.make_engine("sqlite:///{}".format(SCRATCH_DB.as_posix()))
+    _LAST_ENGINE.append(engine)
+    return engine
+
+
+@check("store: the gate runs against a scratch database, never the library")
+def _scratch_is_not_the_library() -> None:
+    url = "sqlite:///{}".format(SCRATCH_DB.as_posix())
+    equal(store.database_url(url), url, "explicit url wins")
+    if store.DEFAULT_DB_PATH.as_posix() in url:
+        raise AssertionError(
+            "the scratch database resolves to the author's library at {}".format(
+                store.DEFAULT_DB_PATH
+            )
+        )
+
+
+@check("store: an upload round-trips byte-identically")
+def _bytes_round_trip() -> None:
+    original = png_bytes(quadrant_fixture(1200, 1800))
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        card = store.add_card(session, original, name="round trip")
+        card_id = card.id
+    with store.session_scope(engine) as session:
+        again = store.get_card(session, card_id)
+        equal(again.image, original, "stored bytes")
+        equal(
+            hashlib.sha256(again.image).hexdigest(),
+            again.image_sha256,
+            "recorded content hash",
+        )
+
+
+@check("store: derived fields are computed from the bytes, not taken on trust")
+def _derived_fields() -> None:
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        card = store.add_card(session, png_bytes(fixture(1234, 987, (10, 20, 30))))
+        equal((card.src_w, card.src_h), (1234, 987), "cached source size")
+        equal(card.image_mime, "image/png", "sniffed mime")
+        equal((card.focus_x, card.focus_y), (0.5, 0.5), "default focus")
+        if not card.thumb:
+            raise AssertionError("no thumbnail was generated on upload")
+        if len(card.thumb) >= len(card.image):
+            raise AssertionError(
+                "thumbnail ({} bytes) is not smaller than the source "
+                "({} bytes)".format(len(card.thumb), len(card.image))
+            )
+
+
+@check("store: a thumbnail is cropped to the card's shape, not the source's")
+def _thumb_shows_the_print_crop() -> None:
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        # A square source cannot be 2:3; the tile must show the crop that will
+        # print, or you choose a card in the grid and meet its crop at the
+        # guillotine.
+        card = store.add_card(session, png_bytes(fixture(1000, 1000, (90, 30, 30))))
+        with Image.open(io.BytesIO(card.thumb)) as tile:
+            tile_aspect = tile.size[0] / tile.size[1]
+        near(tile_aspect, DIXIT.aspect, 0.01, "thumbnail aspect vs card aspect")
+
+
+@check("store: changing the focus regenerates the thumbnail")
+def _focus_change_regenerates_thumb() -> None:
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        # A SQUARE source, deliberately.  A 2:3 source is already the card's
+        # shape, so the crop window fills it and no focus can move it -- a
+        # fixture with no degrees of freedom cannot observe the thing under
+        # test.  (Same trap as the part-full-sheet rule for the flip mapping.)
+        card = store.add_card(session, png_bytes(band_fixture(1200, 1200)))
+        card_id, before = card.id, card.thumb
+        left = store.set_focus(session, card_id, (0.0, 0.5))
+        equal((left.focus_x, left.focus_y), (0.0, 0.5), "stored focus")
+        if left.thumb == before:
+            raise AssertionError(
+                "focus moved from (0.5, 0.5) to (0.0, 0.5) on a square source "
+                "but the thumbnail bytes are unchanged -- the grid would show "
+                "the old crop"
+            )
+        # Cropping a square to 2:3 keeps two thirds of the width.  At focus 0
+        # that is the red and green bands; at focus 1, green and blue.
+        with Image.open(io.BytesIO(left.thumb)) as tile:
+            colour_near(corner_colour(tile, "tl"), (255, 0, 0), "focus 0: left band")
+            colour_near(corner_colour(tile, "tr"), (0, 255, 0), "focus 0: right band")
+
+        right = store.set_focus(session, card_id, (1.0, 0.5))
+        with Image.open(io.BytesIO(right.thumb)) as tile:
+            colour_near(corner_colour(tile, "tl"), (0, 255, 0), "focus 1: left band")
+            colour_near(corner_colour(tile, "tr"), (0, 0, 255), "focus 1: right band")
+
+        # Clamped, not raising: a focus carried over from a differently-shaped
+        # earlier upload degrades to "as close as this image allows".
+        clamped = store.set_focus(session, card_id, (5.0, -3.0))
+        equal((clamped.focus_x, clamped.focus_y), (1.0, 0.0), "clamped focus")
+
+
+@check("store: a source already at the card's aspect has no crop to nudge")
+def _no_crop_freedom_is_not_a_bug() -> None:
+    # The complement of the check above, asserted so nobody "fixes" it: a 2:3
+    # source fills the card exactly, so every focus produces the same tile.
+    # This is correct behaviour, and it is why the check above uses a square.
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        card = store.add_card(session, png_bytes(quadrant_fixture(1200, 1800)))
+        card_id, before = card.id, card.thumb
+        moved = store.set_focus(session, card_id, (0.0, 1.0))
+        equal((moved.focus_x, moved.focus_y), (0.0, 1.0), "focus is still stored")
+        equal(moved.thumb, before, "tile is unchanged, because nothing is cropped")
+
+
+@check("store: tags normalise, de-duplicate and filter")
+def _tags() -> None:
+    engine = scratch_engine()
+    equal(store.normalise_tag("  Deck  1 "), "deck 1", "tag normalisation")
+    with store.session_scope(engine) as session:
+        a = store.add_card(
+            session, png_bytes(fixture(900, 1350, (1, 2, 3))), name="a",
+            tags=["Surreal", " surreal ", "SURREAL", "deck 1"],
+        )
+        store.add_card(
+            session, png_bytes(fixture(900, 1350, (4, 5, 6))), name="b",
+            tags=["deck 1"],
+        )
+        store.add_card(session, png_bytes(fixture(900, 1350, (7, 8, 9))), name="c")
+
+        equal(sorted(t.name for t in a.tags), ["deck 1", "surreal"], "deduped tags")
+        equal(len(store.list_cards(session, tag="Deck 1")), 2, "filter by tag")
+        equal(len(store.list_cards(session, tag="surreal")), 1, "filter by tag")
+        equal(len(store.list_cards(session)), 3, "unfiltered listing")
+        equal(dict(store.all_tags(session))["deck 1"], 2, "tag usage count")
+        equal(len(store.list_cards(session, search="b")), 1, "search by name")
+
+
+@check("store: a bad upload is refused at upload time, not at print time")
+def _bad_upload_refused() -> None:
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        expect_raises(
+            store.StoreError,
+            lambda: store.add_card(session, b"this is not an image"),
+            "a non-image upload",
+        )
+        expect_raises(
+            store.StoreError,
+            lambda: store.add_card(session, b""),
+            "an empty upload",
+        )
+        expect_raises(
+            store.StoreError, lambda: store.get_card(session, 9999), "a missing id"
+        )
+
+
+@check("store: duplicate content is reported, not blocked")
+def _duplicate_detection() -> None:
+    engine = scratch_engine()
+    data = png_bytes(fixture(900, 1350, (33, 99, 66)))
+    with store.session_scope(engine) as session:
+        equal(store.find_by_content(session, data), [], "nothing before the upload")
+        store.add_card(session, data, name="first")
+        equal(len(store.find_by_content(session, data)), 1, "found after upload")
+        # Re-using one picture for two cards is legitimate and must still work.
+        store.add_card(session, data, name="second")
+        equal(len(store.find_by_content(session, data)), 2, "duplicate allowed")
+
+
+@check("store: delete is permanent and removes the row")
+def _delete_is_permanent() -> None:
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        card = store.add_card(session, png_bytes(fixture(900, 1350, (5, 5, 5))))
+        card_id = card.id
+        store.delete_card(session, card_id)
+    with store.session_scope(engine) as session:
+        equal(len(store.list_cards(session)), 0, "listing after delete")
+        expect_raises(
+            store.StoreError,
+            lambda: store.get_card(session, card_id),
+            "fetching a deleted card",
+        )
+
+
+@check("store -> export: a selection exports in the order it was made")
+def _selection_order_is_preserved() -> None:
+    engine = scratch_engine()
+    with store.session_scope(engine) as session:
+        ids = [
+            store.add_card(
+                session, png_bytes(fixture(900, 1350, (i * 20, 0, 0))),
+                name="card-{}".format(i),
+            ).id
+            for i in range(4)
+        ]
+        picked = [ids[2], ids[0], ids[3]]
+        batch = store.batch_for_export(session, picked)
+        equal(
+            [art.name for art in batch],
+            ["card-2", "card-0", "card-3"],
+            "batch order follows the selection, not the database",
+        )
+
+
+@check("store -> export: the library's pixels reach the PDF unresampled")
+def _library_bytes_reach_the_pdf() -> None:
+    engine = scratch_engine()
+    source = quadrant_fixture(1200, 1800)
+    with store.session_scope(engine) as session:
+        card = store.add_card(session, png_bytes(source), name="through-the-store")
+        back = store.add_back(session, png_bytes(quadrant_fixture(1200, 1800)))
+        batch = store.batch_for_export(session, [card.id])
+        result = export_batch(
+            batch,
+            OUT / "from-store.pdf",
+            back=store.to_back_image(back),
+            flip=Flip.LONG_EDGE,
+        )
+
+    pages = read_pages(result.paths[0])
+    equal(len(pages), 2, "pages")
+    rasters = embedded_images_by_name(result.paths[0], 0)
+    equal(len(rasters), 1, "one front raster")
+    placed = list(rasters.values())[0]
+
+    # The card box is taller in proportion than the source, so crop_to_fill
+    # keeps the full width and trims height.  A raster narrower than the
+    # upload means something resampled on the way through.
+    equal(placed.size[0], source.size[0], "raster width vs uploaded width")
+    if placed.size[1] >= source.size[1]:
+        raise AssertionError(
+            "expected the crop to trim height: uploaded {}, placed {}".format(
+                source.size, placed.size
+            )
+        )
+    # And the pixels are the uploaded ones, not something re-generated.
+    colour_near(
+        corner_colour(placed, "tl"), (255, 0, 0), "top-left quadrant survived the store"
+    )
+    colour_near(
+        corner_colour(placed, "tr"), (0, 255, 0), "top-right quadrant survived the store"
+    )
 
 
 # --------------------------------------------------------------------------

@@ -28,9 +28,9 @@ this example from being scanned as a real candidate by `/base:promote`):
 ## 2026-09-22 — test-a-permutation-on-an-asymmetric-fixture
 - scope: generic
 - status: candidate
-- rule: When testing a mapping that permutes positions, choose a fixture whose occupied positions are NOT symmetric under that permutation — otherwise the test passes for every possible mapping. State in the test why the fixture is shaped that way, so a later "simplification" does not restore the symmetric case.
+- rule: Before asserting that an input changes an output, check the fixture actually has the degree of freedom being tested — a fixture symmetric under the mapping, or already at the target shape, passes for every possible implementation. State in the test why the fixture is shaped that way, so a later "simplification" does not restore the degenerate case.
 - home: docs/ARCHITECTURE.md#the-flip-mapping-is-only-observable-on-a-part-full-sheet, tests/run_tests.py (`export: on a part-full sheet the back lands in the mirrored slot`)
-- evidence: on a full 2x2 sheet the duplex-mirrored slots occupy exactly the same four art boxes as the fronts, so a four-card fixture cannot distinguish long-edge from short-edge from no flip at all. A one-card fixture makes the difference visible: long-edge puts the back in slot (0,1), short-edge in (1,0).
+- evidence: TWICE on 2026-09-22. (1) On a full 2x2 sheet the duplex-mirrored slots occupy exactly the same four art boxes as the fronts, so a four-card fixture cannot distinguish long-edge from short-edge from no flip at all; a one-card fixture makes it visible (long-edge -> slot (0,1), short-edge -> (1,0)). (2) The "changing the focus regenerates the thumbnail" check used a 1200x1800 fixture, which is already the card's 2:3 aspect, so `crop_to_fill` has zero crop freedom and no focus can move the window — the test failed against correct code with `the thumbnail bytes are unchanged`. A square fixture gives the horizontal freedom the check needs; the degenerate case is now asserted separately as correct behaviour.
 - applications: 2026-09-22
 
 ## 2026-09-22 — compare-derived-integers-not-recomputed-floats
@@ -55,4 +55,20 @@ this example from being scanned as a real candidate by `/base:promote`):
 - rule: When checking a generated artefact, never assume one stored resource per placement. Pair a placement with its resource by the NAME the placement carries (`embedded_images_by_name`), not by index or count.
 - home: tests/pdf_probe.py (`embedded_images_by_name`), docs/ARCHITECTURE.md#a-repeated-image-is-one-xobject-not-one-per-placement
 - evidence: a back page draws the same back image into four slots; the PDF stores one XObject referenced four times. `equal(len(images), len(page.placements))` failed with `page 1: embedded rasters vs placements: got 1, expected 4` — the test was wrong, not the export.
+- applications: 2026-09-22
+
+## 2026-09-22 — dispose-a-connection-pool-before-deleting-its-file
+- scope: generic
+- status: candidate
+- rule: On Windows, call `engine.dispose()` before unlinking a SQLite file a test created. A pooled connection holds an open handle and the delete fails; a test that recreates its scratch database per case must dispose the previous engine first.
+- home: tests/run_tests.py (`scratch_engine`), docs/ARCHITECTURE.md#dispose-a-connection-pool-before-deleting-its-file
+- evidence: `PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'out\verify\scratch-library.db'` — 8 of 9 store checks failed this way; the first passed because nothing was holding the file yet. POSIX would have allowed the unlink silently, so this is a Windows-only trap that CI on Linux would not catch.
+- applications: 2026-09-22
+
+## 2026-09-22 — sample-a-fixture-away-from-its-own-boundaries
+- scope: generic
+- status: candidate
+- rule: When asserting on pixels, take the sample well inside a region of uniform value — never where two regions meet. Choose the fixture so the sample points and the region boundaries cannot coincide after the transform under test, and say so in the fixture's docstring.
+- home: tests/run_tests.py (`band_fixture` docstring)
+- evidence: `corner_colour` samples at 1/4 and 3/4 of each axis. Cropping a square quadrant fixture to 2:3 keeps two thirds of the width, putting the 3/4 sample exactly on the red/green seam: the assertion read `RGB(108, 146, 2)` and failed against correct code. Three vertical bands at thirds put every sample point in the middle of one colour.
 - applications: 2026-09-22

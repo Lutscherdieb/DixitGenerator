@@ -68,7 +68,8 @@ Uploaded artwork is validated separately and advisorily: an image that resolves 
 
 ## Open direction notes
 
-- **Nothing is built yet beyond the print geometry and its gate.** Next, in order: the SQLite store (cards, backs, tags, notes), the CherryPy JSON API, the browser overview, then the PDF export. The export is last on purpose — it is the piece the gate already describes, so it gets written against a test that already exists.
+- **Built so far: the print geometry, the crop, the card library and the export.** Next, in order: the upload/list/tag API beyond `/api/meta`, the browser overview you batch-select from, then `tools/calibration_sheet.py`. Both ends already exist, so the overview's only job is to let you pick rows and hand them to `export_batch`.
+- **`data/cards.db` holds the only copy of every uploaded image, and deletion is permanent.** That was the deliberate choice over soft delete (2026-09-22): the confirmation lives in the UI. Back the file up before a big tidy-up — it is one file, and copying it copies the whole library.
 - **The calibration sheet is not optional polish.** Home-printer duplex drift of 1-2 mm is normal and is exactly the error that ruins a batch of 84 cards. Build `tools/calibration_sheet.py` before the first real print run, not after.
 - **Decide how a batch remembers its back.** An export currently takes a back image as a parameter. If re-exporting the same deck becomes routine, a saved batch (selection + back + duplex mode) is worth more than a bigger export dialog. Author's call once the overview exists.
 - **Corner rounding is a manual step.** Dixit cards have rounded corners; a guillotine cuts square ones. A corner punch after lamination is the intended finish — the PDF deliberately draws no corner radius, because a printed radius you then cut square looks worse than no radius at all.

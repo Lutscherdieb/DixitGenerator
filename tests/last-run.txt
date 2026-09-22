@@ -22,6 +22,18 @@ PASS export: several sheets, with a part-full last one, back only where used
 PASS export: manual mode writes two files with matching page counts
 PASS export: every placed raster resolves at 300 DPI or better
 PASS export: low-resolution art warns but still exports
+PASS store: the gate runs against a scratch database, never the library
+PASS store: an upload round-trips byte-identically
+PASS store: derived fields are computed from the bytes, not taken on trust
+PASS store: a thumbnail is cropped to the card's shape, not the source's
+PASS store: changing the focus regenerates the thumbnail
+PASS store: a source already at the card's aspect has no crop to nudge
+PASS store: tags normalise, de-duplicate and filter
+PASS store: a bad upload is refused at upload time, not at print time
+PASS store: duplicate content is reported, not blocked
+PASS store: delete is permanent and removes the row
+PASS store -> export: a selection exports in the order it was made
+PASS store -> export: the library's pixels reach the PDF unresampled
 ========================================================================
-18 passed, 0 failed, 18 total
+30 passed, 0 failed, 30 total
 Geometry matches the spec. Safe to print.
