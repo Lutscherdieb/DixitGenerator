@@ -37,7 +37,7 @@
     "q2_description_nongoals_users": {
       "description": "Local tool for making custom Dixit cards. Images in; a browser overview organises them by name, tags and notes; any selection exports as A4 sheets at 300 DPI, fronts 2x2 with margin crop marks plus matching back sheets from one chosen back image, registering under duplex printing on a home printer.",
       "non_goals": [
-        "not a print-service uploader - no MakePlayingCards/PrinterStudio specs; home printer, guillotine, laminator",
+        "REVERSED 2026-09-23 (was: not a print-service uploader) - the export now writes MakePlayingCards-ready per-card images at this project's own card size. Still no uploading, ordering or accounts; still one service. See PROJECT.md's reversal note.",
         "not internet-facing - localhost, single user, no accounts",
         "not an art tool - artwork is authored elsewhere",
         "not a card designer - no name, text, symbol, frame or border ever prints on a card",
@@ -58,7 +58,8 @@
     },
     "q6_references": [
       "dixit-card-spec",
-      "paper-and-pdf-units"
+      "paper-and-pdf-units",
+      "mpc-card-spec"
     ],
     "q7_doc_contract": [
       "README.md",
@@ -80,6 +81,12 @@
       "ports": "8775 author / 8776 Claude throwaway. Deliberately different from the sibling CardGenerator's 8765/8766 so both galleries can run at once and a stop command cannot reach the wrong one.",
       "pdf_library": "reportlab for exact-millimetre placement and vector crop marks; Pillow cannot place. pypdf so the gate can parse its own output back.",
       "no_corner_radius": "A guillotine cuts square corners; a printed radius then cut square looks worse than none. Corner punch after lamination is the intended finish."
+    },
+    "decisions_2026_09_23": {
+      "output_formats": "Three: A4 duplex sheets (primary, unchanged), MakePlayingCards-ready per-card images, and plain cropped images. Chosen from one menu in the export dialog, described once in dixitgen.export.formats and served to the browser through /api/meta.",
+      "one_framing_everywhere": "Every output crops to the card's trim rectangle; press bleed is added OUTSIDE it, from real source pixels where they exist and mirrored where they do not. The first implementation cropped to the bled rectangle, which framed the same card differently in each output; the author caught it mid-task. tests/run_tests.py asserts the invariant and has been seen to fail on the rejected implementation.",
+      "mpc_card_size": "80 x 120 mm, not MPC's stock tarot (69.85 x 120.65). Tarot is 10.15 mm narrower, so cropping to it would have deviated from the sheets. The cost is that ordering needs MPC's custom-size path. Fallback if they decline: point SheetLayout.fit at TAROT_MPC, which moves every output at once -- proven by a gate check, not assumed.",
+      "soft_warning_text": "The per-card soft-resolution warning text is no longer shown in the export flow -- neither in the dialog nor in the finished notification. The count survives in the success line, and the grid's per-tile 'soft' badge and the editor's note are untouched: the information stays where it is actionable, before a batch is chosen."
     }
   },
   "doc_map": [
@@ -133,6 +140,11 @@
     },
     {
       "id": "paper-and-pdf-units",
+      "committed_path": null,
+      "local": false
+    },
+    {
+      "id": "mpc-card-spec",
       "committed_path": null,
       "local": false
     }

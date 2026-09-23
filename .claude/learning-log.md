@@ -144,3 +144,35 @@ this example from being scanned as a real candidate by `/base:promote`):
 - home: CLAUDE.md#a-committed-generated-file-prints-repo-relative-paths (the verification step and its two warnings)
 - evidence: the pattern `'[A-Za-z]:\\[^\\]*\\|...'` returned exit 1 against a repo that did contain an absolute path; stripping the alternation surfaced the real cause, `fatal: command line, '[A-Za-z]:\[^\]*\': Trailing backslash`. Separately, `printf` mangles path fixtures (`\v` becomes a vertical tab, so `out\verify` became `out^Kerify`) — build path fixtures with a quoted heredoc.
 - applications: 2026-09-23
+
+## 2026-09-23 — a-checker-must-derive-the-objects-it-reads-not-just-their-fields
+- scope: generic
+- status: candidate
+- rule: When a checker reads values off domain objects, derive the **object list** from the registry (`CARD_FORMATS`, `PRESS_FORMATS`, the manifest, the tree), not by naming instances. Deriving only the fields still leaves a checker that covers what somebody remembered to register. Prove it by planting a value from a NEWLY added object and confirming the checker exits non-zero and names that object.
+- home: tools/check_geometry_literals.py (`measurements`), CLAUDE.md#never-hardcode-a-print-measurement-ask-dixitgen-spec (verification step)
+- evidence: `measurements()` read `DIXIT` directly while its own docstring claimed "a measurement added to CardFormat is covered the day it exists". Adding `TAROT_MPC`, `MPC_DIXIT` and `MPC_TAROT_STOCK` left 16 new measurements unwatched (33 checked after the fix, 17 before) -- including 897px and 1017px -- and the tool still printed "clean: no print measurement is typed outside dixitgen.spec". Planting `const PLANTED = "897px"` in web/exporter.js now exits 1 with `mpc-tarot-stock upload width is 897px`.
+- applications: 2026-09-23
+
+## 2026-09-23 — crop-once-then-grow-never-crop-to-the-grown-box
+- scope: generic
+- status: candidate
+- rule: When one source must produce several outputs at different physical sizes, crop it **once** to the shared framing rectangle and grow each output outward from that crop. Never crop the source to an output's grown box: adding a constant margin to a non-square changes its aspect ratio, so each output then frames a different slice. Assert the shared region is byte-identical across outputs, not merely the right size -- the bug yields a plausibly-sized image with wrong content.
+- home: src/dixitgen/render/crop.py (`crop_with_full_bleed`), CLAUDE.md#one-crop-serves-every-output, docs/ARCHITECTURE.md#one-framing-three-outputs
+- evidence: the first MPC export cropped to the bled rectangle (0.683 aspect) instead of the trim (0.667), so a pressed card showed a tighter crop than the A4 card. It passed all 41 other gate checks. This is the SECOND time this exact ordering error has been made in this repo -- `crop_with_bleed` was fixed for the sheet path on the same day (commit 06ccbfd, "Fix the bleed: the trim crop is the card, not what fills the bled box") and the press path reintroduced it in a new function three hours later.
+- applications: 2026-09-23
+
+## 2026-09-23 — a-warning-after-the-work-is-noise
+- scope: generic
+- status: candidate
+- rule: Put an advisory warning where the reader can still act on it -- next to the item, before the irreversible or expensive step. Do not repeat it in the completion message: keep a count there if it carries information, and leave the detail in the API response for a caller that wants it. A completion message that has to be scrolled past to reach the primary action has been made worse by the warning.
+- home: web/exporter.js (`finish`), CLAUDE.md#a-warning-belongs-where-the-reader-can-still-act-on-it, PROJECT.md verify-method note
+- evidence: the export's finished notification joined one sentence per soft card (`name: 800x1200px across 80.0x120.0mm resolves at 254x254 DPI, below the 300 DPI this prints at -- it will look soft`) with a separator. Twelve soft cards is roughly 1,500 characters in a toast, pushing Download off the bottom, restating what each grid tile's `soft` badge already said before the batch was chosen. Removed on the author's request.
+- applications: 2026-09-23
+
+## 2026-09-23 — write-multi-line-patch-scripts-to-a-file-not-a-heredoc
+- scope: generic
+- status: candidate
+- rule: To apply a multi-line edit with a script, write the script to a file with the Write tool and run it (`python <path>`). Do not pipe it through a shell heredoc: this harness's Bash tool mangles heredoc bodies. After ANY heredoc-written content containing backslashes or nested quotes, grep the result back and compare byte-for-byte before believing it landed.
+- home: CLAUDE.md (the `.bat` calling convention section is the nearest sibling rule); applied throughout this session by writing patch scripts to the scratchpad
+- evidence: TWICE on 2026-09-23. (1) `cat >> CLAUDE.md <<'EOF'` with a quoted heredoc silently collapsed every `\\` to `\`, breaking prose whose whole point was the difference between `[\]` and `\\`; `cat -A` confirmed the file, not the display, was wrong. (2) A `python - <<'PY'` block containing triple-quoted Python died with `/usr/bin/bash: -c: line 162: unexpected EOF while looking for matching \`'`. A quoted heredoc is supposed to be literal in POSIX sh; here it is not.
+- applications: 2026-09-23

@@ -43,8 +43,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from dixitgen.spec import (  # noqa: E402
     A4,
-    DIXIT,
+    CARD_FORMATS,
     MM_PER_INCH,
+    PRESS_FORMATS,
     PRINT_DPI,
     PT_PER_INCH,
     SHEET,
@@ -70,12 +71,18 @@ EXCLUDE_PREFIXES = ("src/dixitgen/spec/", "tests/", "docs/")
 def measurements() -> Dict[str, List[Tuple[float, str]]]:
     """Every number the spec owns, grouped by the unit it is written in.
 
-    Derived, never enumerated: add a field to ``CardFormat`` or ``SheetLayout``
-    and it appears here as soon as it is read below.
+    Derived, never enumerated, in both directions: the *fields* come from
+    reading the spec objects, and the *objects* come from ``CARD_FORMATS`` and
+    ``PRESS_FORMATS`` rather than being named one by one.  Register a new card
+    or press format and its measurements are covered on the same commit.
+
+    This was not always true.  Until 2026-09-23 the card row read ``DIXIT``
+    directly, so adding ``TAROT_MPC`` and the press profiles left ten new
+    measurements -- 897px and 1017px among them -- entirely unwatched while
+    this tool still printed "clean".  A checker that enumerates what it checks
+    can only ever cover what somebody remembered to add.
     """
     mm: List[Tuple[float, str]] = [
-        (DIXIT.trim_w_mm, "card trim width"),
-        (DIXIT.trim_h_mm, "card trim height"),
         (A4.w_mm, "paper width"),
         (A4.h_mm, "paper height"),
         (SHEET.block_w_mm, "block width"),
@@ -88,17 +95,29 @@ def measurements() -> Dict[str, List[Tuple[float, str]]]:
         (SHEET.unprintable_margin_mm, "unprintable margin"),
         (MM_PER_INCH, "millimetres per inch"),
     ]
-    px: List[Tuple[float, str]] = [
-        (DIXIT.trim_w_px, "card width in pixels"),
-        (DIXIT.trim_h_px, "card height in pixels"),
-    ]
+    px: List[Tuple[float, str]] = []
     pt: List[Tuple[float, str]] = [
-        (DIXIT.trim_w_pt, "card width in points"),
-        (DIXIT.trim_h_pt, "card height in points"),
         (A4.w_pt, "paper width in points"),
         (A4.h_pt, "paper height in points"),
         (PT_PER_INCH, "points per inch"),
     ]
+
+    for card in CARD_FORMATS.values():
+        mm.append((card.trim_w_mm, "{} trim width".format(card.id)))
+        mm.append((card.trim_h_mm, "{} trim height".format(card.id)))
+        px.append((card.trim_w_px, "{} width in pixels".format(card.id)))
+        px.append((card.trim_h_px, "{} height in pixels".format(card.id)))
+        pt.append((card.trim_w_pt, "{} width in points".format(card.id)))
+        pt.append((card.trim_h_pt, "{} height in points".format(card.id)))
+
+    for press in PRESS_FORMATS.values():
+        mm.append((press.bleed_mm, "{} bleed".format(press.id)))
+        mm.append((press.bled_w_mm, "{} bled width".format(press.id)))
+        mm.append((press.bled_h_mm, "{} bled height".format(press.id)))
+        px.append((press.bleed_px, "{} bleed in pixels".format(press.id)))
+        px.append((press.upload_w_px, "{} upload width".format(press.id)))
+        px.append((press.upload_h_px, "{} upload height".format(press.id)))
+
     dpi: List[Tuple[float, str]] = [(PRINT_DPI, "print resolution")]
     return {"mm": mm, "px": px, "pt": pt, "dpi": dpi}
 

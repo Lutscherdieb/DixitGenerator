@@ -26,6 +26,7 @@ import hashlib
 import io
 import sys
 import traceback
+import zipfile
 from pathlib import Path
 from typing import Callable, List, Tuple
 
@@ -36,11 +37,16 @@ sys.path.insert(0, str(ROOT / "tests"))
 from PIL import Image  # noqa: E402
 
 from dixitgen import store  # noqa: E402
+from dixitgen.export.card_images import export_card_images  # noqa: E402
+from dixitgen.export.formats import OUTPUTS  # noqa: E402
 from dixitgen.export.sheet_pdf import CardArt, export_batch  # noqa: E402
 from dixitgen.spec import (  # noqa: E402
     A4,
     DIXIT,
+    MPC_DIXIT,
+    MPC_TAROT_STOCK,
     SHEET,
+    TAROT_MPC,
     CardFormat,
     Flip,
     GeometryError,
@@ -957,6 +963,211 @@ def _bleed_machinery_still_works() -> None:
         # can never bleed however large the setting.
         near(placement.h_mm, card.h_mm, 0.01, "no vertical bleed is available")
     equal(grew, 4, "outer columns took their sideways bleed")
+
+
+# --------------------------------------------------------------------------
+# image exports: MakePlayingCards-ready files and plain crops
+# --------------------------------------------------------------------------
+
+
+def zip_images(path: Path) -> dict:
+    """Every PNG in an export archive, opened, keyed by its name in the zip."""
+    out = {}
+    with zipfile.ZipFile(path) as archive:
+        for name in archive.namelist():
+            if not name.lower().endswith(".png"):
+                continue
+            img = Image.open(io.BytesIO(archive.read(name)))
+            img.load()
+            out[name] = img
+    return out
+
+
+@check("units: MPC's published tarot upload size derives, and we do not print it")
+def _mpc_published_figures() -> None:
+    # The falsifiability cross-check, in the same spirit as the MTG card: MPC
+    # publish 897 x 1497 px for a 2.75 x 4.75 in tarot card with 36 px of
+    # bleed a side.  This project prints neither that card nor that size, so
+    # the figures cannot have been fitted to our own output.
+    equal(MPC_TAROT_STOCK.upload_w_px, 897, "MPC tarot upload width")
+    equal(MPC_TAROT_STOCK.upload_h_px, 1497, "MPC tarot upload height")
+    equal(TAROT_MPC.trim_w_px, 825, "tarot trim width in pixels")
+    equal(TAROT_MPC.trim_h_px, 1425, "tarot trim height in pixels")
+    # And the size we do export: this project's own card plus the same bleed.
+    equal(MPC_DIXIT.card, DIXIT, "the MPC export uses this project's card")
+    equal(MPC_DIXIT.upload_w_px, DIXIT.trim_w_px + 2 * MPC_DIXIT.bleed_px, "width")
+    equal(MPC_DIXIT.upload_h_px, DIXIT.trim_h_px + 2 * MPC_DIXIT.bleed_px, "height")
+
+
+@check("images: a plain crop export is the preview's crop, unresampled")
+def _crops_are_the_preview() -> None:
+    source = band_fixture(928, 1232)
+    preview = trim_crop(source)
+    result = export_card_images(
+        [CardArt(name="one", image=source)],
+        OUT / "crops.zip",
+        OUTPUTS["crops"],
+    )
+    images = zip_images(result.paths[0])
+    equal(len(images), 1, "files in the archive")
+    got = next(iter(images.values()))
+    equal(got.size, preview.size, "the exported crop is the preview's size")
+    equal(
+        got.convert("RGB").tobytes(),
+        preview.convert("RGB").tobytes(),
+        "the exported crop is the preview's pixels",
+    )
+
+
+@check("images: an MPC file is the sheet's crop with bleed added outside it")
+def _mpc_frames_like_the_pdf() -> None:
+    # The invariant the author asked for on 2026-09-23: one framing across
+    # every output.  Cropping the source to the BLED rectangle instead -- the
+    # first implementation -- passes every other check here and fails this
+    # one, because the trim line then eats into the picture.
+    press = MPC_DIXIT
+    for label, source in (
+        ("wider than the card", band_fixture(1600, 1200)),
+        ("taller than the card", band_fixture(1200, 2400)),
+        ("exactly the card's aspect", band_fixture(945, 1417)),
+    ):
+        preview = trim_crop(source)
+        result = export_card_images(
+            [CardArt(name="one", image=source)],
+            OUT / "mpc.zip",
+            OUTPUTS[press.id],
+        )
+        got = next(iter(zip_images(result.paths[0]).values()))
+
+        # Bleed is measured in source pixels, so it scales with the crop.
+        bleed_x = round(press.bleed_mm * preview.size[0] / DIXIT.trim_w_mm)
+        bleed_y = round(press.bleed_mm * preview.size[1] / DIXIT.trim_h_mm)
+        equal(
+            got.size,
+            (preview.size[0] + 2 * bleed_x, preview.size[1] + 2 * bleed_y),
+            "{}: the bled file is the trim crop plus bleed".format(label),
+        )
+        if bleed_x <= 0 or bleed_y <= 0:
+            raise AssertionError("{}: no bleed was added at all".format(label))
+
+        inner = got.crop(
+            (bleed_x, bleed_y, bleed_x + preview.size[0], bleed_y + preview.size[1])
+        )
+        equal(
+            inner.convert("RGB").tobytes(),
+            preview.convert("RGB").tobytes(),
+            "{}: the trim region differs from the sheet's crop".format(label),
+        )
+
+
+@check("images: bleed lands on all four sides even where the source has none spare")
+def _mpc_bleed_is_never_short() -> None:
+    # crop_to_fill always consumes 100% of one axis, so that axis has no spare
+    # source pixel to bleed with -- the reason the sheet path can only ever
+    # manage partial bleed.  A press cannot take a short side, so the shortfall
+    # is mirrored.  A source at exactly the card's aspect has nothing spare on
+    # EITHER axis, which is the hardest case.
+    source = band_fixture(945, 1417)
+    preview = trim_crop(source)
+    equal(preview.size, source.size, "the fixture really has no spare pixels")
+
+    result = export_card_images(
+        [CardArt(name="one", image=source)],
+        OUT / "mpc-tight.zip",
+        OUTPUTS[MPC_DIXIT.id],
+    )
+    got = next(iter(zip_images(result.paths[0]).values()))
+    equal(
+        got.size,
+        (MPC_DIXIT.upload_w_px, MPC_DIXIT.upload_h_px),
+        "a print-size source reaches the press's published upload size",
+    )
+    # Every edge pixel must come from somewhere: a band of background colour
+    # would mean a side was padded with fill rather than picture.
+    for name, box in (
+        ("left", (0, got.size[1] // 2, 1, got.size[1] // 2 + 1)),
+        ("right", (got.size[0] - 1, got.size[1] // 2, got.size[0], got.size[1] // 2 + 1)),
+        ("top", (got.size[0] // 2, 0, got.size[0] // 2 + 1, 1)),
+        ("bottom", (got.size[0] // 2, got.size[1] - 1, got.size[0] // 2 + 1, got.size[1])),
+    ):
+        pixel = got.crop(box).convert("RGB").getpixel((0, 0))
+        if pixel == (0, 0, 0):
+            raise AssertionError(
+                "the {} bleed is empty fill, not mirrored picture".format(name)
+            )
+
+
+@check("images: one file per card plus one shared back, and progress reaches the total")
+def _image_archive_contents() -> None:
+    cards = [
+        CardArt(name="card {}".format(i), image=fixture(945, 1417, (i * 30, 90, 120)))
+        for i in range(3)
+    ]
+    seen = []
+    result = export_card_images(
+        cards,
+        OUT / "mpc-deck.zip",
+        OUTPUTS[MPC_DIXIT.id],
+        back=fixture(945, 1417, (10, 10, 10)),
+        progress=lambda done, total: seen.append((done, total)),
+    )
+    images = zip_images(result.paths[0])
+    equal(len(images), 4, "three fronts and one shared back")
+    equal(sorted(images)[-1], "back.png", "the back is named for what it is")
+    equal(result.images, 4, "the result counts every file written")
+    equal(result.sheets, 0, "an image export lays out no sheets")
+    equal(result.flip, None, "an image export runs no duplex pass")
+    equal(seen[-1], (4, 4), "progress reaches the total")
+
+    # The archive names must sort into the selection's order, because that is
+    # the order the cards will be uploaded and paired with their backs.
+    fronts = sorted(name for name in images if name != "back.png")
+    equal(
+        [name.split("-", 1)[0] for name in fronts],
+        ["001", "002", "003"],
+        "fronts are numbered in selection order",
+    )
+
+    with zipfile.ZipFile(result.paths[0]) as archive:
+        notes = [n for n in archive.namelist() if n.endswith(".txt")]
+        equal(len(notes), 1, "a press export carries its ordering notes")
+        text = archive.read(notes[0]).decode("utf-8")
+    for needed in (
+        "{} x {}".format(MPC_DIXIT.upload_w_px, MPC_DIXIT.upload_h_px),
+        "NOT one of",
+    ):
+        if needed not in text:
+            raise AssertionError(
+                "the press notes omit {!r}: {!r}".format(needed, text[:200])
+            )
+
+
+@check("images: a plain crop export carries no press notes")
+def _crops_have_no_press_notes() -> None:
+    result = export_card_images(
+        [CardArt(name="one", image=fixture(945, 1417, (200, 100, 50)))],
+        OUT / "crops-bare.zip",
+        OUTPUTS["crops"],
+    )
+    with zipfile.ZipFile(result.paths[0]) as archive:
+        equal(archive.namelist(), ["001-one.png"], "the archive holds only the card")
+
+
+@check("layout: the sheet machinery survives a different card format")
+def _layout_is_not_dixit_only() -> None:
+    # PROJECT.md's recorded fallback: if MPC decline a custom 80 x 120 mm card,
+    # the whole project moves onto their stock tarot size by pointing the
+    # layout at another CardFormat.  Proving it here keeps that a one-line
+    # change rather than a hope.
+    layout = SheetLayout.fit(card=TAROT_MPC)
+    equal(layout.cards_per_sheet, SHEET.cards_per_sheet, "still four to a sheet")
+    equal(layout.card.trim_w_px, 825, "the tarot card keeps its own pixel size")
+    assert_registration(layout, Flip.LONG_EDGE)
+    assert_art_inside_own_slot(layout)
+    assert_clean_cards(layout, layout.crop_marks())
+    box = layout.card_box(0, 0)
+    near(box.w_mm, TAROT_MPC.trim_w_mm, 0.001, "a slot is one tarot card wide")
+    near(box.h_mm, TAROT_MPC.trim_h_mm, 0.001, "a slot is one tarot card tall")
 
 
 # --------------------------------------------------------------------------

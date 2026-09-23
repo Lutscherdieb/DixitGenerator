@@ -26,6 +26,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import zipfile
 import socket
 import subprocess
 import sys
@@ -362,6 +363,74 @@ def run_checks(page, base: str, fixtures: List[Path]) -> None:
             "the Download link should ask for an attachment: {}".format(download_href)
         )
     record("export: Download and Open sit on one line and both resolve", True)
+
+    # -- export: the other output formats ----------------------------------
+    # Clear the notification layer first, so the next success toast is the
+    # only one on screen and cannot be confused with the PDF export's.
+    for _ in range(len(page.query_selector_all(".toast"))):
+        page.click(".toast .toast-close")
+        page.wait_for_timeout(60)
+
+    page.click("#export-open")
+    page.wait_for_selector("#export-dialog:not([hidden])")
+
+    offered = page.eval_on_selector_all(
+        "#export-format option", "nodes => nodes.map(n => n.value)"
+    )
+    equal(
+        offered,
+        [fmt["id"] for fmt in meta["formats"]],
+        "the menu offers exactly what /api/meta lists",
+    )
+
+    # No warning text in the export flow, however soft the art is: the grid
+    # tile and the editor carry that, per card, before a batch is chosen.
+    if page.query_selector("#export-body .warn-box"):
+        raise AssertionError("the export dialog still shows soft-art warning text")
+    record("export: the dialog offers every format and warns about none", True)
+
+    images_format = next(fmt for fmt in meta["formats"] if not fmt["uses_duplex"])
+    page.select_option("#export-format", images_format["id"])
+
+    for selector in (".flips", ".offsets"):
+        node = page.query_selector(selector)
+        if node and node.is_visible():
+            raise AssertionError(
+                "{} is still visible for an image export, which has no duplex "
+                "pass and no printer to calibrate".format(selector)
+            )
+    button = page.inner_text("#export-run").strip()
+    if "PDF" in button:
+        raise AssertionError(
+            "the run button still says {!r} for an image export".format(button)
+        )
+    record("export: picking an image format hides the duplex and offset fields", True)
+
+    # Re-opening the dialog rebuilds it, so the back has to be chosen again;
+    # picking it here also proves a back reaches an image export.
+    page.select_option("#export-back", index=1)
+    page.fill("#export-name", "gallery-images")
+    page.click("#export-run")
+    page.wait_for_selector("#export-dialog", state="hidden", timeout=5000)
+    page.wait_for_selector(".toast-success", timeout=60000)
+
+    toast = page.query_selector(".toast-success")
+    labels = [n.inner_text().strip() for n in toast.query_selector_all(".toast-action")]
+    equal(labels, ["Download"], "a zip offers Download only -- there is no inline view")
+
+    href = toast.query_selector(".toast-action").get_attribute("href")
+    with urllib.request.urlopen(base + href, timeout=30) as response:
+        blob = response.read()
+    equal(blob[:2], b"PK", "the Download link really serves a zip")
+
+    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        names = archive.namelist()
+    pngs = [n for n in names if n.endswith(".png")]
+    # Every selected card, plus the one shared back chosen earlier.
+    equal(len(pngs), len(cards) + 1, "one file per card plus the shared back")
+    if "back.png" not in pngs:
+        raise AssertionError("the shared back is missing from {}".format(names))
+    record("export: an image format downloads a zip holding every card", True)
 
     # Every notification can be dismissed, and the layer leaves nothing behind.
     for _ in range(len(page.query_selector_all(".toast"))):

@@ -51,13 +51,22 @@ class CardArt:
 
 @dataclass(frozen=True)
 class ExportResult:
-    """What an export produced, for the caller to report to the user."""
+    """What an export produced, for the caller to report to the user.
+
+    Shared with the per-card image writer in ``card_images``, which is why
+    ``flip`` is optional and ``sheets`` can be zero: an image export lays
+    nothing out on paper and runs no duplex pass, and reporting ``None`` is
+    honest where naming a flip mode that was never applied would not be.
+    """
 
     paths: List[Path]
     sheets: int
     cards: int
-    flip: Flip
+    flip: Optional[Flip]
     warnings: List[str]
+    #: Per-card image files written.  Zero for sheet output, which counts in
+    #: sheets instead.
+    images: int = 0
 
 
 def _chunk(items: Sequence[CardArt], size: int) -> List[Sequence[CardArt]]:

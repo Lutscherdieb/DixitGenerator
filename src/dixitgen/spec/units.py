@@ -35,6 +35,17 @@ MM_TOLERANCE = 1e-3
 PT_TOLERANCE = 1e-2
 
 
+def in_to_mm(inches: float) -> float:
+    """Inches to millimetres.
+
+    Print services publish card sizes in inches (MakePlayingCards' tarot card
+    is "2.75 x 4.75"); converting here keeps the published figure as the thing
+    that is written down, so the millimetre value stays derived rather than
+    transcribed.
+    """
+    return inches * MM_PER_INCH
+
+
 def mm_to_pt(mm: float) -> float:
     """Millimetres to PDF user-space points (1/72 in)."""
     return mm / MM_PER_INCH * PT_PER_INCH

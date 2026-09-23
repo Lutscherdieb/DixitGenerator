@@ -39,6 +39,13 @@ PASS store -> export: the library's pixels reach the PDF unresampled
 PASS export: the cut card shows the preview's crop, identically in every slot
 PASS export: with bleed off, every drawn box is exactly its card box
 PASS export: bleed still works when switched back on
+PASS units: MPC's published tarot upload size derives, and we do not print it
+PASS images: a plain crop export is the preview's crop, unresampled
+PASS images: an MPC file is the sheet's crop with bleed added outside it
+PASS images: bleed lands on all four sides even where the source has none spare
+PASS images: one file per card plus one shared back, and progress reaches the total
+PASS images: a plain crop export carries no press notes
+PASS layout: the sheet machinery survives a different card format
 ========================================================================
-35 passed, 0 failed, 35 total
+42 passed, 0 failed, 42 total
 Geometry matches the spec. Safe to print.

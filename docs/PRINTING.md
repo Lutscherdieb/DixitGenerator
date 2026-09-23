@@ -5,6 +5,11 @@ this once before your first batch; the two settings in
 [Print dialog](#print-dialog-the-two-settings-that-matter) are the ones that
 ruin a run if you get them wrong.
 
+Printing at home is what this document is about. If you are sending the cards
+to a press instead, skip to
+[Sending cards to a press](#sending-cards-to-a-press) — none of the duplex,
+calibration or cutting advice applies there.
+
 ## What the PDF contains
 
 | | |
@@ -32,6 +37,65 @@ both still full-bleed.
 
 Pages come out interleaved — front, back, front, back — for automatic duplex.
 In manual mode you get two files instead.
+
+## Sending cards to a press
+
+The export dialog's **Output** menu has two image formats beside the A4 PDF.
+Both write one PNG per card into a single `.zip` in `out/`, plus one shared
+`back.png` if you picked a back. Neither has a duplex pass or a calibration
+offset, so those controls disappear when you choose one.
+
+| Output | Per-card file | Use it for |
+|---|---|---|
+| **MakePlayingCards ready** | 1017 × 1489 px — the 80 × 120 mm card plus 36 px of bleed a side | Ordering from a press |
+| **Cropped images only** | The trim crop at the source's own resolution, no bleed | Anything else: a different service, an archive, re-importing |
+
+### The bleed is already in the file
+
+Every file in an MPC archive carries its bleed. **Do not add bleed again in the
+press's designer** — you would be bleeding the bleed, and the card would come
+back showing about 6 mm less picture on each edge than you framed.
+
+The archive contains a `README-mpc-dixit.txt` saying the same thing, with the
+exact pixel size, so the file travels with its own instructions.
+
+### What the bleed is made of
+
+Bleed is taken from real source pixels wherever your artwork has spare material
+outside the crop. Where it does not — and it usually does not on at least one
+axis, because the crop keeps 100% of one dimension by construction — the edge is
+**mirrored outward** instead.
+
+That is standard prepress practice and it is invisible on a cut card, because
+the mirrored strip is outside the trim line. It matters only if a press cuts
+badly wrong: you would then see a narrow mirrored band rather than a white one,
+which is the better failure.
+
+### Read this before you order
+
+**MakePlayingCards does not sell an 80 × 120 mm card.** Their sizes are mini,
+bridge, poker (63 × 88 mm), tarot (2.75 × 4.75 in = 69.85 × 120.65 mm) and big.
+Tarot is the closest to a Dixit card — the same height to within 0.65 mm, and
+**10.15 mm narrower**.
+
+This project exports its own 80 × 120 mm, deliberately, so that a card you order
+matches a card you cut at home and fits a Dixit sleeve. The cost is that the
+order has to go through MPC's custom-requirements path, and **they may decline
+it**.
+
+If they do, the fallback is recorded in [PROJECT.md](../PROJECT.md): move
+*every* output to tarot together by pointing `SheetLayout.fit` at `TAROT_MPC`,
+rather than letting the press files drift away from the sheets. The verify gate
+already exports and measures that layout, so it is a one-line change. Your cards
+would then no longer match a real Dixit deck or fill a Dixit sleeve — which is
+why it is a decision and not a default.
+
+### What you do not have to think about
+
+Framing. A card is cropped once, by its trim rectangle, and the bleed is added
+outside that. The card a press cuts, the card you cut off an A4 sheet and the
+tile in the overview are the same picture — the verify gate asserts it on every
+run, for sources wider than the card, taller than it, and at exactly its aspect.
 
 ## Print dialog: the two settings that matter
 

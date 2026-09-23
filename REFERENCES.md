@@ -10,6 +10,7 @@ This file is the single source of truth for references. The manifest's `readonly
 |---|---|---|---|
 | How big is a Dixit card? What will a sleeve fit? | `dixit-card-spec` | `WebFetch https://www.sleeveyourgames.com/sleeves/643/dixit` | Measure a physical card with callipers and record the measurement, with the date and what was measured, as a blind-spot entry below. Retailers disagree by ~1 mm (see blind spots); a measurement beats a listing. |
 | How many points is a millimetre? How big is A4 exactly? | `paper-and-pdf-units` | `WebFetch https://en.wikipedia.org/wiki/ISO_216`, `WebFetch https://developer.mozilla.org/en-US/docs/Web/CSS/length` | ISO 32000 (the PDF specification) for user-space units, ISO 216 itself for the paper series. Both are paywalled; the derived figures above are stable and asserted by the verify gate, so a paywall is not a blocker. |
+| How big is a MakePlayingCards card? How much bleed do they want? | `mpc-card-spec` | `WebFetch https://www.makeplayingcards.com/design/custom-blank-card.html` | Their per-product design pages and downloadable templates; failing that, their sales contact form. Do not infer a size from a template image's pixel count without the published figure to check it against. |
 | What does *my* printer actually do on a duplex pass? | none — this is measured, not referenced | `python tools/calibration_sheet.py`, then measure the printed sheet | Nothing. Printer drift is machine state, not a ground truth: it belongs in gitignored `printer.local.json`, never in git and never in a reference. |
 
 ## Registry
@@ -55,6 +56,46 @@ volatility: live
 - **Known blind spots / failed approaches:**
   - **The CSS pixel is not the print pixel.** MDN defines `1in = 96px` because that is the CSS reference pixel. This project renders at **300 DPI**, so `1in = 300px` here. Never carry a `96` across from CSS documentation into the print path — read the `pt` and `mm` rows, ignore the `px` row.
   - **reportlab's default unit is the point, not the millimetre.** Every coordinate handed to it must already have gone through the spec module's conversion. A number that looks like a millimetre and is silently treated as a point is off by a factor of 2.835 and produces a plausible-looking, badly wrong sheet.
+
+## MakePlayingCards card specification
+
+```yaml
+id: mpc-card-spec
+kind: website
+readonly: true
+local: false
+committed_path: null
+url: https://www.makeplayingcards.com/design/custom-blank-card.html
+volatility: live
+```
+
+- **Access method:** `WebFetch https://www.makeplayingcards.com/design/custom-blank-card.html`
+  for the size list, the bleed and the safe-area rule. Their per-size pages
+  (for example `custom-tarot-cards.html`) 404 as often as not; when one does,
+  search the site for the product name rather than guessing a URL.
+- **Comparison procedure:**
+  1. Read the printed size in **inches** and the bleed in **pixels at 300 DPI**.
+     Both are published; the millimetre figures are not.
+  2. Assert that `PressFormat.upload_w_px/upload_h_px` for `MPC_TAROT_STOCK`
+     reproduces their published minimum upload size of **897 x 1497 px** for
+     the tarot card. `tests/run_tests.py` asserts exactly this.
+  3. That product is a cross-check, not a target: this project exports
+     `MPC_DIXIT`, its own 80 x 120 mm card with the same bleed. A bleed model
+     checked only against the size it was built for cannot fail.
+- **Known blind spots / failed approaches:**
+  - **MPC has no 80 x 120 mm card.** Their sizes are mini 1.75 x 2.5 in, bridge
+    2.25 x 3.5 in, poker 63 x 88 mm, tarot 2.75 x 4.75 in and big 3.5 x 5.75 in
+    (retrieved 2026-09-23). Tarot is the nearest to a Dixit card: the same
+    height to within 0.65 mm and **10.15 mm narrower**. Ordering 80 x 120 mm
+    goes through their custom-requirements path and may be declined.
+  - **Take the bleed as 36 px, not as 1/8 in.** MPC state both, and they
+    disagree: 1/8 in at 300 DPI is 37.5 px. Only 36 reconciles with the
+    897 x 1497 they publish (825 + 72, 1425 + 72), so the pixel figure is the
+    one their template is actually built from.
+  - **The safe area is deliberately not modelled.** It exists to keep text and
+    logos clear of the cut, and nothing but the card's own image ever prints
+    here (PROJECT.md's defining constraint). Do not add it "for completeness";
+    it would only ever shrink a picture that is supposed to run to the edge.
 
 <!-- Section template (copy for a new reference):
 

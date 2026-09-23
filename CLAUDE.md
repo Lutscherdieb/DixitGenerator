@@ -60,6 +60,8 @@ Every measurement (page, card, grid, margin, bleed, crop-mark length, DPI, a poi
 
 **Verification step:** after any change touching geometry, layout or export, run `python tools/check_geometry_literals.py`; it must exit 0. It asks the spec module for the number list and greps for each one **unit-anchored** (`80mm`, `226.77`, not a bare `80`), so a measurement added to `CardFormat` or `SheetLayout` is covered the day it exists. Do not replace it with a hand-written grep over specific numbers: that form can only catch drift somebody already thought of.
 
+**It derives the *objects* too, not just their fields** — it loops over `CARD_FORMATS` and `PRESS_FORMATS`, so registering a format covers its measurements on the same commit. **When you add a format, prove that**: plant one of its new numbers unit-anchored in a `web/` or `src/` file and confirm the checker exits 1 and names the owning object, then remove it. A "clean" from a checker that never looked is the failure mode this tool exists to prevent.
+
 *Evidence (inherited, `CardGenerator` 2026-08-24 and 2026-08-31):* in the sibling project the card canvas size existed in four disagreeing copies across Python, CSS and an SVG template, and all four were wrong against the published spec. A later hand-written grep stayed green while `--road-width: 214px` sat in a stylesheet as a second source of truth, because `214` was not in the list somebody had thought to write. This project starts with the derived form to avoid re-earning both lessons.
 
 ### Take the card and paper figures from the published spec, never from a code comment
@@ -114,3 +116,21 @@ git grep -nIE '[A-Za-z]:[\][^\]*[\]|[A-Za-z]:/[A-Za-z0-9_. -]+/|/(home|Users)/[A
 Write the backslashes as bracket expressions `[\]`, not as `\\`. **A `git grep -E` pattern whose alternative ends in `\\|` silently degrades** — git reads the escaped pipe as a literal `|`, the alternation collapses into one branch, and the check reports clean while matching nothing. It exits 1, indistinguishable from a real pass. Keep every example path in this file redacted (`<drive>:\<repo>\...`) so the check never flags the prose that explains it. Prove the pattern on a planted fixture (a file containing an absolute path, staged in a throwaway repo, must be reported) before trusting an exit 1 from it.
 
 *Evidence (2026-09-23, setting up the GitHub remote):* `tests/last-run.txt:5` carried `output : <drive>:\<repo>\out\verify` into what became a public repo. The first pattern written to find it used `\\` and returned exit 1 on a repo that did contain the path; `git grep` reported `fatal: ... 'Trailing backslash'` only once the alternation was removed. Note also that `printf '<drive>:\<repo>\out\verify'` mangles its own fixture (`\v` becomes a vertical tab) — build path fixtures with a quoted heredoc.
+
+### One crop serves every output — add bleed outside the framing, never crop to it
+
+A card is framed **once**, by its trim rectangle: `crop_to_fill(img, card.trim_w_mm, card.trim_h_mm, focus)`. The A4 sheet, the plain image export and the press files all show that crop. A press's bleed is added **outside** it by `crop_with_full_bleed`, which takes real source pixels where they exist and mirrors the edge for the shortfall.
+
+**Never crop a source to a bled rectangle.** Adding equal bleed to a non-square changes its aspect (80 x 120 mm is 0.667; the same card plus 3.048 mm a side is 0.683), so the trim region then shows a different slice of the source than the sheet does — the same card, framed differently in each output.
+
+**Verification step:** `python tests/run_tests.py` asserts that a press file's trim region is byte-identical to `crop_to_fill` on the same source, for a source wider than the card, one taller than it, and one at exactly its aspect. Do not weaken it to a size comparison: the bled-rectangle bug produces an image of a plausible size and wrong content. Prove the assertion still bites after touching the crop path — replace `crop_with_full_bleed` with `crop_to_fill(img, press.bled_w_mm, press.bled_h_mm, focus)` and the check must go red while every other check stays green.
+
+*Evidence (2026-09-23):* the first implementation of the MPC export did crop to the bled rectangle — the textbook way to prepare press artwork, and one line shorter. It passed every other check in the gate. The author caught it by reading the design, not the output, and said so mid-task: *"we want the exported images and the exported pdf images be the same cropped image size so we don't have the images deviating"*.
+
+### A warning belongs where the reader can still act on it
+
+Soft-resolution warnings appear on the grid tile and in the editor — per card, before a batch is chosen, pointing at the image you would have to replace. **The export flow shows no warning text**: not in the dialog, not in the finished notification. The finished notification keeps the count only, and the API still returns every warning string.
+
+Do not "helpfully" re-add a list of affected cards to an export result. After the export the work is done; a wall of text there is not advice, it is something to scroll past to reach the Download button.
+
+*Evidence (2026-09-23, the author's request):* the finished notification joined one full sentence per soft card with `·`. On a real deck that ran to thousands of characters and pushed the Download action off the bottom of the notification.

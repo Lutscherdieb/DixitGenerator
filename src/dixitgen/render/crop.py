@@ -185,6 +185,132 @@ def crop_with_bleed(
     return result
 
 
+def _reflect_pad(
+    img: Image.Image, left: int, top: int, right: int, bottom: int
+) -> Image.Image:
+    """``img`` grown by mirroring its own edges outward.
+
+    Mirroring rather than a solid fill: a press cuts somewhere inside the bleed
+    and whatever is there shows on the card edge, so it has to continue the
+    picture.  A white or black band would print as a sliver of exactly the
+    thing bleed exists to prevent.
+
+    If a side is asked for more than the image is wide or tall -- only possible
+    for a source far below print resolution -- the mirror is topped up by
+    replicating the outermost row or column, which is ugly but bounded.
+    """
+    if not any((left, top, right, bottom)):
+        return img
+
+    w, h = img.size
+    out = Image.new(img.mode, (w + left + right, h + top + bottom))
+    out.paste(img, (left, top))
+
+    if left:
+        n = min(left, w)
+        out.paste(img.crop((0, 0, n, h)).transpose(Image.FLIP_LEFT_RIGHT), (left - n, top))
+        if n < left:
+            out.paste(img.crop((0, 0, 1, h)).resize((left - n, h)), (0, top))
+    if right:
+        n = min(right, w)
+        out.paste(
+            img.crop((w - n, 0, w, h)).transpose(Image.FLIP_LEFT_RIGHT), (left + w, top)
+        )
+        if n < right:
+            out.paste(
+                img.crop((w - 1, 0, w, h)).resize((right - n, h)), (left + w + n, top)
+            )
+
+    # Take the full-width band back off the canvas so the corners come along
+    # with the vertical mirror instead of needing four more cases.
+    band = out.crop((0, top, out.width, top + h))
+    bw, bh = band.size
+    if top:
+        n = min(top, bh)
+        out.paste(band.crop((0, 0, bw, n)).transpose(Image.FLIP_TOP_BOTTOM), (0, top - n))
+        if n < top:
+            out.paste(band.crop((0, 0, bw, 1)).resize((bw, top - n)), (0, 0))
+    if bottom:
+        n = min(bottom, bh)
+        out.paste(
+            band.crop((0, bh - n, bw, bh)).transpose(Image.FLIP_TOP_BOTTOM), (0, top + h)
+        )
+        if n < bottom:
+            out.paste(
+                band.crop((0, bh - 1, bw, bh)).resize((bw, bottom - n)),
+                (0, top + h + n),
+            )
+    return out
+
+
+def crop_with_full_bleed(
+    img: Image.Image,
+    trim_w_mm: float,
+    trim_h_mm: float,
+    bleed_mm: float,
+    focus: Tuple[float, float] = (0.5, 0.5),
+) -> BleedCrop:
+    """The trim crop with ``bleed_mm`` on **every** side, guaranteed.
+
+    This is the press path, and it differs from ``crop_with_bleed`` in the one
+    way that matters: the requested bleed is always delivered.  Source pixels
+    outside the trim are used where they exist, and the shortfall is mirrored
+    (see ``_reflect_pad``).
+
+    The trim region of the result is byte-identical to ``crop_to_fill`` on the
+    same arguments, which is the whole point -- the sheet PDF, the plain image
+    export and the press files all show one framing.  Cropping to the bled
+    rectangle instead would be shorter and would frame each output differently;
+    see ``dixitgen.spec.press``.
+
+    Nothing is resampled: the bleed is measured in source pixels at whatever
+    resolution the crop already has, so the returned image is the trim crop's
+    own resolution plus its bleed.
+    """
+    if bleed_mm < 0:
+        raise ValueError("bleed_mm must not be negative, got {!r}".format(bleed_mm))
+
+    left, top, crop_w, crop_h = fill_rect(*img.size, trim_w_mm, trim_h_mm, focus)
+    src_w, src_h = img.size
+
+    px_per_mm_x = crop_w / trim_w_mm
+    px_per_mm_y = crop_h / trim_h_mm
+    want_x = round(bleed_mm * px_per_mm_x)
+    want_y = round(bleed_mm * px_per_mm_y)
+
+    # Real pixels first, as far as the source reaches on each side.
+    take_left = max(min(want_x, left), 0)
+    take_top = max(min(want_y, top), 0)
+    take_right = max(min(want_x, src_w - (left + crop_w)), 0)
+    take_bottom = max(min(want_y, src_h - (top + crop_h)), 0)
+
+    real = img.crop(
+        (
+            left - take_left,
+            top - take_top,
+            left + crop_w + take_right,
+            top + crop_h + take_bottom,
+        )
+    )
+    out = _reflect_pad(
+        real,
+        left=want_x - take_left,
+        top=want_y - take_top,
+        right=want_x - take_right,
+        bottom=want_y - take_bottom,
+    )
+
+    # Reported in millimetres off the same ratio the pixels were taken at, so
+    # the caller can place the image without recomputing anything.
+    return BleedCrop(
+        image=out,
+        left_mm=want_x / px_per_mm_x,
+        bottom_mm=want_y / px_per_mm_y,
+        right_mm=want_x / px_per_mm_x,
+        top_mm=want_y / px_per_mm_y,
+    )
+
+
 def rotate_sides(sides: Sides) -> Sides:
     """The same sides seen after a 180-degree turn: left<->right, bottom<->top.
 

@@ -15,6 +15,7 @@ from typing import Optional
 import cherrypy
 
 from .. import __version__
+from ..export.formats import as_dicts as output_formats
 from ..spec import as_dict
 from ..store import DEFAULT_DB_PATH, database_url, make_engine
 from .api import BacksApi, CardsApi, ExportApi, TagsApi, json_error
@@ -47,6 +48,10 @@ class Api:
     def meta(self) -> dict:
         payload = as_dict()
         payload["version"] = __version__
+        # The export dialog's format menu, labels and figures included, so the
+        # browser renders it without typing a measurement of its own.  A format
+        # added in dixitgen.export.formats appears here with no frontend edit.
+        payload["formats"] = output_formats()
         # Whether this server is serving the author's real library.  A check
         # that uploads and deletes cards uses this to refuse to run against
         # it -- the database holds the only copy of every image, and a test

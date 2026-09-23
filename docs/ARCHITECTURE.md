@@ -5,8 +5,10 @@
 One direction of flow, four stages, and a single owner for every number:
 
 ```
-  upload ──▶ store ──▶ overview ──▶ export ──▶ A4 PDF ──▶ printer ──▶ guillotine
-             (sqlite)  (browser)   (reportlab)
+  upload ──▶ store ──▶ overview ──▶ export ─┬▶ A4 PDF ─▶ printer ─▶ guillotine
+             (sqlite)  (browser)            │  (reportlab)
+                                            └▶ per-card PNGs in a zip
+                                               (press-ready, or plain crops)
 
                     ┌─────────────────────────┐
                     │  dixitgen.spec          │  every measurement lives here
@@ -27,6 +29,12 @@ The second rule, from PROJECT.md: **the card is the image.** No module draws
 text, a border or a frame inside a card box, and `assert_clean_cards` is what
 holds that, rather than discipline.
 
+The third, added 2026-09-23 when the export grew a second writer: **one crop
+serves every output.** A card is framed once, by its trim rectangle; a press's
+bleed is added *outside* that framing. See "One framing, three outputs" below —
+it is the invariant that makes a card ordered from a press and a card cut off an
+A4 sheet the same picture.
+
 ## Components
 
 ### `dixitgen.spec` — the measurements
@@ -34,7 +42,8 @@ holds that, rather than discipline.
 | Module | Owns |
 |---|---|
 | `units.py` | `mm ↔ pt ↔ px`, the tolerances, and the published ratios they come from |
-| `card.py` | `CardFormat`; `DIXIT` is 80 × 120 mm, deriving to 945 × 1417 px at 300 DPI |
+| `card.py` | `CardFormat`; `DIXIT` is 80 × 120 mm, deriving to 945 × 1417 px at 300 DPI. `TAROT_MPC` is a size we do **not** print — see `press.py` |
+| `press.py` | `PressFormat`: a card format plus a print service's mandatory bleed, and the only place a press number lives |
 | `sheet.py` | `PaperSize`, `SheetLayout`, `Rect`, `Segment`, `Flip`: the grid, the bleed, the crop marks, the duplex mapping |
 | `verify.py` | The assertions the export and the gate both call |
 
@@ -84,7 +93,13 @@ cannot:
 caller's order**, because a batch is a selection in the order you made it, not
 in database order.
 
-### `dixitgen.export` — batch to PDF
+### `dixitgen.export` — batch to sheets, or to per-card files
+
+| Module | Writes |
+|---|---|
+| `formats.py` | The menu: `a4-pdf`, `mpc-dixit`, `crops`. Labels and figures derived from the spec objects, served to the browser through `/api/meta` |
+| `sheet_pdf.py` | `export_batch` — A4 duplex sheets |
+| `card_images.py` | `export_card_images` — one PNG per card, zipped |
 
 `export_batch` chunks the selection into sheets, draws each front page, and —
 for each *used* slot only — draws the chosen back into the mirrored slot.
@@ -93,6 +108,19 @@ Auto-duplex modes interleave front/back pages in one file; `Flip.MANUAL` writes
 
 Every geometry assertion runs **before** the canvas is created, so a batch that
 would not register produces no file at all.
+
+`export_card_images` writes one `NNN-name.png` per card plus a single
+`back.png`, into one `.zip`. It lays nothing out on paper, so it runs no
+registration assertion, reports `sheets=0` and `flip=None`, and the dialog hides
+the duplex and calibration controls for it. For a press format it also drops a
+`README-<press>.txt` into the archive carrying the upload size and the ordering
+caveat, every figure read off the spec object so it cannot drift from the files
+beside it.
+
+**Adding a format is one entry in `formats.py`.** The dialog, `/api/meta` and
+the download MIME table all derive from it; `api.py` asserts at import that
+every format's suffix is one it can serve, so "added a format, forgot its media
+type" fails on startup rather than as a 404 after a long export.
 
 ### `dixitgen.web` + `web/` — the overview
 
@@ -152,9 +180,11 @@ graphics-state stack and the CTM, and reports image placements and stroked
 lines, so the gate checks the **file** rather than the layout object that
 produced it.
 
-`check_gallery.py` drives real Chromium against a running server. It is not part
-of the gate and `web/**` is not in `source_globs`, because exporting a PDF proves
-nothing about the browser. It earns that separation: it caught a POST that a
+`check_gallery.py` drives real Chromium against a running server, through both
+export kinds — the PDF with its Download/Open pair, and an image format whose
+zip it downloads and opens to count the files. It is not part of the gate and
+`web/**` is not in `source_globs`, because exporting a PDF proves nothing about
+the browser. It earns that separation: it caught a POST that a
 redirect was silently turning into a GET, which no amount of PDF measuring could
 have seen.
 
@@ -206,15 +236,27 @@ not bleed produces a smaller box rather than a white band.
 checks is that every placement *contains* its card box and stays inside that
 maximum.
 
-### Four-side bleed is structurally impossible here
+### Four-side bleed is impossible from source pixels alone
 
 `crop_to_fill` is maximal: it keeps 100% of the width *or* 100% of the height.
-So one axis never has a spare pixel, and bleed on that axis is always zero - for
-any source, at any resolution. Rendering art larger does not change this.
+So one axis never has a spare pixel, and bleed *taken from the source* on that
+axis is always zero - for any source, at any resolution. Rendering art larger
+does not change this.
 
-That asymmetry is half of why bleed was switched off (below); the other half is
-that a card pushed to its focus limit has no spare pixels on that side either,
-so it got no bleed while its neighbour got the full 3 mm.
+That asymmetry is half of why sheet bleed was switched off (below); the other
+half is that a card pushed to its focus limit has no spare pixels on that side
+either, so it got no bleed while its neighbour got the full 3 mm.
+
+**Narrowed 2026-09-23.** The sentence above is about *source* pixels, and the
+press path escapes it: `crop_with_full_bleed` takes real pixels where they exist
+and **mirrors the edge** to make up the shortfall, so all four sides are always
+full. A press cuts on its own line with a mechanical tolerance and a short side
+prints a white sliver, so "as much bleed as the source happened to have" is not
+an option there the way it is on a sheet you cut yourself.
+
+Mirroring rather than filling: whatever sits in the bleed is what shows on the
+card edge if the cut drifts, so it has to continue the picture. A white band
+would print as a sliver of exactly the thing bleed exists to prevent.
 
 ### Bleed is off: the drawn box is the cut box
 
@@ -238,6 +280,48 @@ The machinery is kept, not deleted, and `export: bleed still works when switched
 back on` keeps it proven: raise `outer_bleed_mm` and bleed returns, correctly,
 on every side that has material to give. Crop marks moved in with it - they now
 start 1.5 mm outside the block rather than 4.5 mm.
+
+### One framing, three outputs
+
+**Reversed within the same task, 2026-09-23.** The first implementation of the
+press export cropped each source to the **bled** rectangle and let the trim line
+cut inward from it. That is the textbook way to prepare press artwork, it is one
+line shorter, and it was wrong here: adding equal bleed to a non-square changes
+its aspect (80 × 120 mm is 0.667; the same card plus 3.048 mm a side is 0.683),
+so the trim region showed a different slice of the source than the A4 sheet did.
+Three outputs, three framings. The author caught it mid-task, before it shipped.
+
+The rule now: **crop to the trim, then grow outward.** `crop_with_full_bleed`
+returns an image whose trim region is byte-identical to `crop_to_fill` on the
+same arguments — the same crop the grid tile shows and the same crop the PDF
+draws — with the bleed added outside it.
+
+This is the same ordering as the sheet path's "trim crop first, bleed second"
+(above), and for the same reason. The difference is only what happens when the
+source runs out of pixels: the sheet takes a short side, the press mirrors.
+
+The gate asserts it for sources wider than the card, taller than it, and at
+exactly its aspect, and **the assertion has been seen to fail** — planting the
+rejected implementation turns it red while every other check stays green.
+
+### Soft-art warnings live on the tile, not in the export
+
+**Changed 2026-09-23, the author's call.** The export used to list every
+soft-printing card twice: once in the dialog by name, and once in the finished
+notification as a full sentence per card. On a real deck the second ran to
+thousands of characters, pushed the Download button off the bottom of the
+notification, and arrived after the work was already done.
+
+Both are gone. What stays:
+
+- the per-tile `soft` badge in the grid, and the editor's `· will print soft`,
+  which is where the warning is *actionable* — before a batch is chosen, and
+  pointing at the card you would have to replace;
+- the count in the finished notification (`· 12 resolution warnings`);
+- every warning string in the API response, for a caller that wants them.
+
+The rule this is an instance of: a warning belongs where the reader can still
+act on it. After the export it is not advice, it is noise.
 
 ### The flip mapping is only observable on a part-full sheet
 

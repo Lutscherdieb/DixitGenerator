@@ -9,11 +9,13 @@ Read the modules in this order:
 
     units    millimetres, points, pixels -- and where those ratios come from
     card     the printable card format (Dixit: 80 x 120 mm)
+    press    a card format plus a print service's mandatory bleed
     sheet    the grid on the paper, the bleed, the crop marks, the duplex flip
     verify   the assertions that hold all of the above to the written PDF
 """
 
-from .card import CARD_FORMATS, DIXIT, CardFormat
+from .card import CARD_FORMATS, DIXIT, TAROT_MPC, CardFormat
+from .press import MPC_DIXIT, MPC_TAROT_STOCK, PRESS_FORMATS, PressFormat
 from .sheet import (
     A4,
     PAPER_SIZES,
@@ -31,6 +33,7 @@ from .units import (
     PT_PER_INCH,
     PT_TOLERANCE,
     effective_dpi,
+    in_to_mm,
     mm_to_pt,
     mm_to_px,
     pt_to_mm,
@@ -58,10 +61,17 @@ __all__ = [
     "mm_to_px",
     "px_to_mm",
     "effective_dpi",
+    "in_to_mm",
     # card
     "CardFormat",
     "DIXIT",
+    "TAROT_MPC",
     "CARD_FORMATS",
+    # press
+    "PressFormat",
+    "MPC_DIXIT",
+    "MPC_TAROT_STOCK",
+    "PRESS_FORMATS",
     # sheet
     "PaperSize",
     "A4",

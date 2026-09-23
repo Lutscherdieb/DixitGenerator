@@ -21,8 +21,9 @@ Shape
     PUT    /api/backs/{id}/focus      {x, y}
     GET    /api/backs/{id}/image      the original upload
     POST   /api/export                starts a job; 202 with {job_id}
+                                      {format} picks sheets or images
     GET    /api/export/status/{id}    {state, done, total, percent, files}
-    GET    /api/export/file/{name}    the PDF inline; ?download=1 to save
+    GET    /api/export/file/{name}    the PDF or zip; ?download=1 to save
 
 Errors come back as JSON (``{"error": "..."}``), never CherryPy's HTML page:
 the browser client shows the message, and an HTML body in a fetch() is just a
@@ -43,6 +44,8 @@ from typing import List, Optional
 import cherrypy
 
 from .. import store
+from ..export.card_images import export_card_images
+from ..export.formats import OUTPUTS, OutputFormat, option_for
 from ..export.sheet_pdf import export_batch
 from ..spec import DIXIT, SHEET, Flip, GeometryError
 
@@ -51,6 +54,16 @@ EXPORT_DIR = Path(__file__).resolve().parents[3] / "out"
 
 #: A generated filename must survive being put in a URL and a Windows path.
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
+
+#: What ``/api/export/file`` will serve, keyed by suffix.  The suffixes come
+#: from the format table rather than being listed here, so a new output format
+#: is downloadable the day it exists -- and the assertion below turns "added a
+#: format, forgot its media type" into an import-time failure instead of a 404
+#: the user meets after waiting for an export.
+DOWNLOAD_MIME = {".pdf": "application/pdf", ".zip": "application/zip"}
+assert {option.suffix for option in OUTPUTS.values()} <= set(DOWNLOAD_MIME), (
+    "an output format has a suffix DOWNLOAD_MIME cannot serve"
+)
 
 
 def json_error(status, message, traceback, version):  # noqa: ARG001 - cherrypy hook
@@ -399,6 +412,15 @@ class ExportApi:
         if not card_ids:
             _fail(400, "select at least one card to export")
 
+        format_value = body.get("format", OutputFormat.A4_PDF.value)
+        try:
+            option = option_for(format_value)
+        except (KeyError, ValueError):
+            _fail(400, "unknown output format {!r}".format(format_value))
+
+        # Duplex mode is parsed even for an image export -- it is ignored
+        # there, but a payload carrying a bad one should still be a 400
+        # rather than silently doing something else.
         flip_value = body.get("flip", Flip.LONG_EDGE.value)
         try:
             flip = Flip(flip_value)
@@ -413,7 +435,7 @@ class ExportApi:
 
         name = str(body.get("name") or "batch")
         name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "batch"
-        out_path = EXPORT_DIR / "{}.pdf".format(name)
+        out_path = EXPORT_DIR / "{}{}".format(name, option.suffix)
 
         try:
             ids = [int(i) for i in card_ids]
@@ -432,31 +454,43 @@ class ExportApi:
             except store.StoreError as exc:
                 _fail(400, str(exc))
 
+        # One drawn card is the unit either way; a sheet export draws the back
+        # once per card, an image export writes one shared back file.
+        if option.kind == "images":
+            total = len(ids) + (1 if back_id else 0)
+        else:
+            total = len(ids) * (2 if back_id else 1)
+
         job_id = uuid.uuid4().hex
         self._put(
             job_id,
             state="running",
             done=0,
-            total=len(ids) * (2 if back_id else 1),
+            total=total,
             files=[],
             warnings=[],
             error=None,
             started=time.time(),
             name=name,
+            format=option.id,
         )
 
         worker = threading.Thread(
             target=self._run,
-            args=(job_id, ids, back_id, out_path, flip, offset_mm),
+            args=(job_id, ids, back_id, out_path, flip, offset_mm, option),
             daemon=True,
             name="export-{}".format(job_id[:8]),
         )
         worker.start()
 
         cherrypy.response.status = 202
-        return {"job_id": job_id, "status_url": "/api/export/status/{}".format(job_id)}
+        return {
+            "job_id": job_id,
+            "format": option.id,
+            "status_url": "/api/export/status/{}".format(job_id),
+        }
 
-    def _run(self, job_id, ids, back_id, out_path, flip, offset_mm) -> None:
+    def _run(self, job_id, ids, back_id, out_path, flip, offset_mm, option) -> None:
         """The worker. Opens its own session -- sessions are not thread-safe."""
         try:
             with store.session_scope(self.engine) as session:
@@ -468,15 +502,30 @@ class ExportApi:
                     back_image = store.to_back_image(back)
                     back_focus = back.focus
 
-            result = export_batch(
-                cards,
-                out_path,
-                back=back_image,
-                flip=flip,
-                offset_mm=offset_mm,
-                back_focus=back_focus,
-                progress=lambda done, total: self._put(job_id, done=done, total=total),
-            )
+            def progress(done, total):
+                self._put(job_id, done=done, total=total)
+
+            if option.kind == "images":
+                # No sheets, so no duplex pass and no calibration offset --
+                # those describe a piece of paper being turned over.
+                result = export_card_images(
+                    cards,
+                    out_path,
+                    option,
+                    back=back_image,
+                    back_focus=back_focus,
+                    progress=progress,
+                )
+            else:
+                result = export_batch(
+                    cards,
+                    out_path,
+                    back=back_image,
+                    flip=flip,
+                    offset_mm=offset_mm,
+                    back_focus=back_focus,
+                    progress=progress,
+                )
         except GeometryError as exc:
             self._put(
                 job_id,
@@ -495,7 +544,8 @@ class ExportApi:
                 state="done",
                 sheets=result.sheets,
                 cards=result.cards,
-                flip=result.flip.value,
+                images=result.images,
+                flip=result.flip.value if result.flip else None,
                 warnings=result.warnings,
                 files=[
                     {
@@ -524,23 +574,28 @@ class ExportApi:
     # -- serving the result ------------------------------------------------
     @cherrypy.expose
     def file(self, filename: str, download: Optional[str] = None):
-        """Serve a written PDF back to the browser.
+        """Serve a written export back to the browser.
 
-        Inline by default, so "Open" shows it in the browser's PDF viewer;
-        ``?download=1`` attaches it, so "Download" saves it.
+        Inline by default, so "Open" shows a PDF in the browser's viewer;
+        ``?download=1`` attaches it, so "Download" saves it.  A zip has nothing
+        to show inline, and the frontend offers only Download for one.
+
+        The media type is looked up by suffix in ``DOWNLOAD_MIME``, whose keys
+        cover every format in the export table -- checked at import.
 
         The name is matched against a strict whitelist rather than joined and
         hoped for: this process can read the whole disk, and a path like
         ``..%2f..%2fcards.db`` must not resolve.
         """
         _require("GET")
-        if not SAFE_NAME.match(filename) or not filename.lower().endswith(".pdf"):
+        mime = DOWNLOAD_MIME.get(Path(filename).suffix.lower())
+        if not SAFE_NAME.match(filename) or mime is None:
             _fail(404, "no such export")
         path = (EXPORT_DIR / filename).resolve()
         if path.parent != EXPORT_DIR.resolve() or not path.is_file():
             _fail(404, "no such export")
         return _serve_bytes(
             path.read_bytes(),
-            "application/pdf",
+            mime,
             filename if download else None,
         )

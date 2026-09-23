@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .units import PRINT_DPI, mm_to_pt, mm_to_px
+from .units import PRINT_DPI, in_to_mm, mm_to_pt, mm_to_px
 
 
 @dataclass(frozen=True)
@@ -94,4 +94,21 @@ DIXIT = CardFormat(
     trim_h_mm=120.0,
 )
 
-CARD_FORMATS = {DIXIT.id: DIXIT}
+#: MakePlayingCards' tarot card -- the only stock size they offer that comes
+#: close to a Dixit card, and the target of the MPC-ready export.  Published as
+#: **2.75 x 4.75 inches** (see the ``mpc-card-spec`` entry in REFERENCES.md), so
+#: it is written here in inches and converted, not transcribed as millimetres.
+#:
+#: It is **not** a Dixit card: 69.85 mm against 80 mm is 10.15 mm narrower, and
+#: the aspect is 0.579 against Dixit's 0.667, so an MPC card is a tighter crop
+#: across the width than the same art on an A4 sheet.  That difference is the
+#: price of MPC having no 80 x 120 size, and it is recorded rather than hidden
+#: -- see PROJECT.md's reversal note on the print-service non-goal.
+TAROT_MPC = CardFormat(
+    id="mpc-tarot",
+    label="MPC tarot (2.75 x 4.75 in)",
+    trim_w_mm=in_to_mm(2.75),
+    trim_h_mm=in_to_mm(4.75),
+)
+
+CARD_FORMATS = {fmt.id: fmt for fmt in (DIXIT, TAROT_MPC)}
