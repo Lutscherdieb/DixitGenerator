@@ -2,7 +2,7 @@ DixitGenerator verify gate
 ========================================================================
 card   : Dixit (80 x 120 mm) -> 945 x 1417 px at 300 DPI
 sheet  : A4 (210 x 297 mm), 2x2 grid, 4 cards/sheet, margins 25.0/28.5 mm
-output : E:\Boardgame\DixitGenerator\out\verify
+output : out/verify
 ========================================================================
 PASS units: A4 derives to its published PDF point size
 PASS units: an MTG card (a size we never print) derives correctly

@@ -47,7 +47,7 @@ this example from being scanned as a real candidate by `/base:promote`):
 - rule: A checker that greps source for forbidden literals must strip comments and docstrings first, then prove both directions: plant the literal in a code line (must fail) and in a comment (must pass). A checker that flags the prose explaining its own rule trains people to ignore it.
 - home: tools/check_geometry_literals.py (`code_lines`), docs/ARCHITECTURE.md#a-measurement-in-a-comment-is-prose-not-a-source-of-truth
 - evidence: the first working version reported 4 findings, all inside `check_geometry_literals.py`'s own docstring, which uses `80mm`, `945px`, `226.77pt` and `595.276pt` as examples of what it looks for. Both directions are now exercised: a planted `const CARD_W = "80mm"` exits 1, the same text in a `//` comment exits 0.
-- applications: 2026-09-22
+- applications: 2026-09-22, 2026-09-23
 
 ## 2026-09-22 — a-reused-resource-is-stored-once-in-the-artefact
 - scope: project
@@ -127,4 +127,20 @@ this example from being scanned as a real candidate by `/base:promote`):
 - rule: When an action takes long enough to need a progress indicator, do not hold the request open — start a worker, return an id, and poll. Drive the percentage from a callback the worker fires per unit of real work, never from a timer. Give the worker its own database session; sessions are not thread-safe.
 - home: src/dixitgen/web/api.py (`ExportApi`), src/dixitgen/export/sheet_pdf.py (the `progress` callback), docs/ARCHITECTURE.md#dixitgenweb--web--the-overview, tests/run_tests.py (`export: progress is reported once per card drawn, and reaches the total`)
 - evidence: exporting a deck is one large raster cropped and embedded per card; the synchronous POST gave the browser nothing to show for several seconds. The gate now asserts the progress sequence is `0..total` with one tick per image, so "80%" cannot drift into decoration.
+- applications: 2026-09-23
+
+## 2026-09-23 — a-committed-generated-file-prints-repo-relative-paths
+- scope: generic
+- status: candidate
+- rule: Any generator whose output is committed (verify evidence, a report, a manifest) must format paths as `p.relative_to(ROOT).as_posix()`, and every example path quoted in a doc must be redacted. Run the tracked-file machine-path grep in CLAUDE.md before any push, and before making a repo public.
+- home: CLAUDE.md#a-committed-generated-file-prints-repo-relative-paths, tests/run_tests.py (`main`, the `output :` header line)
+- evidence: `tests/last-run.txt:5` carried `output : <drive>:\<repo>\out\verify` — committed since the verify gate first ran, and about to become world-readable in a PUBLIC GitHub repo. The seeded doctrine line ("no machine-specific absolute paths") already existed and did not prevent it, because nothing regenerated the check when the generator changed. N=1 file, 6 commits of history.
+- applications: 2026-09-23
+
+## 2026-09-23 — git-grep-ere-alternation-eats-a-trailing-backslash
+- scope: generic
+- status: candidate
+- rule: In a `git grep -E` or `grep -E` pattern, write a literal backslash as the bracket expression `[\]`, never as `\\`. An alternative ending `\\|` silently degrades: the escaped pipe is read as a literal `|`, the alternation collapses to one branch, and the check exits 1 — indistinguishable from a real pass. Never trust an exit 1 from a grep-based check that has not been shown to exit 0 on a planted positive fixture.
+- home: CLAUDE.md#a-committed-generated-file-prints-repo-relative-paths (the verification step and its two warnings)
+- evidence: the pattern `'[A-Za-z]:\\[^\\]*\\|...'` returned exit 1 against a repo that did contain an absolute path; stripping the alternation surfaced the real cause, `fatal: command line, '[A-Za-z]:\[^\]*\': Trailing backslash`. Separately, `printf` mangles path fixtures (`\v` becomes a vertical tab, so `out\verify` became `out^Kerify`) — build path fixtures with a quoted heredoc.
 - applications: 2026-09-23

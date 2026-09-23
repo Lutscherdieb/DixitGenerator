@@ -975,7 +975,10 @@ def main() -> int:
     print("sheet  : {}, {}x{} grid, {} cards/sheet, margins {}/{} mm".format(
         SHEET.paper.label, SHEET.cols, SHEET.rows, SHEET.cards_per_sheet,
         SHEET.margin_x_mm, SHEET.margin_y_mm))
-    print("output : {}".format(OUT))
+    # Repo-relative: this header lands in tests/last-run.txt, which is
+    # committed evidence, and a machine-specific absolute path must never
+    # reach version control (CLAUDE.md).
+    print("output : {}".format(OUT.relative_to(ROOT).as_posix()))
     print("=" * 72)
 
     for name, ok, detail in _RESULTS:

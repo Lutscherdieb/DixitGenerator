@@ -100,3 +100,17 @@ The ports are deliberately not `CardGenerator`'s 8765/8766: both tools are galle
 A home printer's duplex front/back drift is a property of one machine and one paper path. It lives in gitignored `printer.local.json` at the repo root, written by `tools/calibration_sheet.py`'s measurement step and applied to back pages only.
 
 **Verification step:** `git check-ignore -v printer.local.json` must name a `.gitignore` rule. A calibration offset that reaches git silently mis-registers someone else's printer — and on this project's own terms, a machine-specific number in version control is a doctrine violation regardless of whether it happens to be harmful.
+
+### A committed generated file prints repo-relative paths, never absolute ones
+
+`tests/last-run.txt` is committed verify evidence, so every path it prints is in version control. Any generator whose output is committed — the verify gate, a report, a manifest — formats paths as `p.relative_to(ROOT).as_posix()`, so the text is byte-identical on every machine and carries nobody's directory layout. The repo is public; a path like `<drive>:\<repo>\out\verify` published a user's drive and folder tree.
+
+**Verification step:** before any push, this must exit 1 (no match):
+
+```
+git grep -nIE '[A-Za-z]:[\][^\]*[\]|[A-Za-z]:/[A-Za-z0-9_. -]+/|/(home|Users)/[A-Za-z0-9_.-]+/' -- .
+```
+
+Write the backslashes as bracket expressions `[\]`, not as `\\`. **A `git grep -E` pattern whose alternative ends in `\\|` silently degrades** — git reads the escaped pipe as a literal `|`, the alternation collapses into one branch, and the check reports clean while matching nothing. It exits 1, indistinguishable from a real pass. Keep every example path in this file redacted (`<drive>:\<repo>\...`) so the check never flags the prose that explains it. Prove the pattern on a planted fixture (a file containing an absolute path, staged in a throwaway repo, must be reported) before trusting an exit 1 from it.
+
+*Evidence (2026-09-23, setting up the GitHub remote):* `tests/last-run.txt:5` carried `output : <drive>:\<repo>\out\verify` into what became a public repo. The first pattern written to find it used `\\` and returned exit 1 on a repo that did contain the path; `git grep` reported `fatal: ... 'Trailing backslash'` only once the alternation was removed. Note also that `printf '<drive>:\<repo>\out\verify'` mangles its own fixture (`\v` becomes a vertical tab) — build path fixtures with a quoted heredoc.
